@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+motor
+beanie
+pydantic
+pydantic-settings
+python-dotenv
+python-multipart
+python-jose[cryptography]
+passlib[bcrypt]
+pymongo<4.12
+langchain
+langchain-google-genai
+reportlab
