@@ -10,6 +10,7 @@ class Question(BaseModel):
     text: str
     options: List[str]
     correct_option_index: int
+    explanation: Optional[str] = None
     topic_ids: List[str] = []
 
 

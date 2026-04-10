@@ -118,37 +118,46 @@ async def _build_student_snapshot(student_id: str) -> str:
 
 @router.post("/ask")
 async def ask_student_chatbot(payload: StudentChatRequest):
-    student_id = payload.student_id.strip()
-    if not student_id:
-        raise HTTPException(status_code=400, detail="student_id is required")
-
-    question = payload.question.strip()
-    if not question:
-        raise HTTPException(status_code=400, detail="question is required")
-
     try:
-        PydanticObjectId(student_id)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid student_id")
+        student_id = payload.student_id.strip()
+        if not student_id:
+            raise HTTPException(status_code=400, detail="student_id is required")
 
-    course_id = await _resolve_course_for_student(student_id, payload.course_id)
-    class_context, sources = await _build_class_context(course_id)
-    student_snapshot = await _build_student_snapshot(student_id)
+        question = payload.question.strip()
+        if not question:
+            raise HTTPException(status_code=400, detail="question is required")
 
-    history_text = "\n".join([
-        f"{turn.role}: {turn.content}" for turn in payload.history[-6:]
-    ])
+        try:
+            PydanticObjectId(student_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid student_id")
 
-    result = await generate_personalized_student_answer(
-        question=question,
-        student_snapshot=student_snapshot,
-        class_context=class_context,
-        history=history_text or "No prior turns",
-    )
+        course_id = await _resolve_course_for_student(student_id, payload.course_id)
+        class_context, sources = await _build_class_context(course_id)
+        student_snapshot = await _build_student_snapshot(student_id)
 
-    return {
-        "answer": result["answer"],
-        "mode": result.get("mode", "fallback"),
-        "course_id": course_id,
-        "sources": sources[:10],
-    }
+        history_text = "\n".join([
+            f"{turn.role}: {turn.content}" for turn in payload.history[-6:]
+        ])
+
+        result = await generate_personalized_student_answer(
+            question=question,
+            student_snapshot=student_snapshot,
+            class_context=class_context,
+            history=history_text or "No prior turns",
+        )
+
+        return {
+            "answer": result["answer"],
+            "mode": result.get("mode", "fallback"),
+            "course_id": course_id,
+            "sources": sources[:10],
+        }
+    except HTTPException as e:
+        raise e
+    except Exception as err:
+        import traceback
+        with open("backend_chatbot_error.log", "w") as f:
+            f.write(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(err))
+

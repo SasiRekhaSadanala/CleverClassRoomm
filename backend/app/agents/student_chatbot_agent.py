@@ -13,56 +13,62 @@ _KEY_COOLDOWN_UNTIL: dict[str, float] = {}
 
 chat_prompt = PromptTemplate.from_template(
     """
-You are a personalized academic assistant for students.
+You are a world-class academic tutor and mentor. Your goal is to provide clear, high-quality, and deeply educational explanations for any query from a student or teacher.
 
-You must prioritize CLASS CONTEXT first, then use verified general knowledge only if needed.
-Never fabricate class facts.
-
-Student Snapshot:
-{student_snapshot}
-
-Class Context:
+Class Context (Topics & Materials):
 {class_context}
+
+Student Mastery Snapshot:
+{student_snapshot}
 
 Conversation History:
 {history}
 
-Student Question:
+Current Query:
 {question}
 
 Instructions:
-- First, answer from class context if relevant.
-- If class context is incomplete, explicitly say what was not found and then provide a short verified general explanation.
-- Keep response structured and concise.
-- For problem-solving questions, provide step-by-step guidance.
-- Use a supportive teaching tone.
-- End with a short "Next step" for the student.
+1. Provide a direct, thorough answer to the query using your broad internal knowledge.
+2. If the 'Class Context' above contains relevant topics or materials, weave them naturally into your explanation to make it course-aligned.
+3. Use a supportive, encouraging, and sophisticated teaching tone.
+4. For technical or problem-solving questions, break the explanation into intuitive steps.
+5. Use Markdown formatting (headers, bold text, code blocks) to make the response visually organized and easy to read.
 
-Output format (Markdown):
-1) Direct Answer
-2) Why (course-aligned)
-3) Steps (if applicable)
-4) Next Step
+Output Structure:
+## Quick Answer
+The direct answer to the question.
+
+## Deep Dive / Why
+A detailed explanation of the concept, principles, and underlying logic.
+
+## Step-by-Step / Examples
+(If applicable) Practical examples or a logical breakdown of the process.
+
+## Pro Tip / Next Concept
+A related higher-level concept or a practical tip to help the learner master this topic.
 """
 )
 
 
 def _candidate_keys() -> List[str]:
     keys: List[str] = []
-    if GOOGLE_API_KEYS.strip():
-        keys.extend([k.strip() for k in GOOGLE_API_KEYS.split(",") if k.strip()])
-    if GOOGLE_API_KEY.strip() and GOOGLE_API_KEY.strip() not in keys:
-        keys.append(GOOGLE_API_KEY.strip())
+    
+    # Evaluate at runtime so load_dotenv() from main.py is already active
+    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    api_keys = os.getenv("GOOGLE_API_KEYS", "").strip()
+    
+    if api_keys:
+        keys.extend([k.strip() for k in api_keys.split(",") if k.strip()])
+    if api_key and api_key not in keys:
+        keys.append(api_key)
     return keys
 
 
 def _available_keys() -> List[str]:
-    now = time.time()
-    return [k for k in _candidate_keys() if _KEY_COOLDOWN_UNTIL.get(k, 0) <= now]
-
+    return _candidate_keys()
 
 def _cooldown_key(key: str, seconds: int) -> None:
-    _KEY_COOLDOWN_UNTIL[key] = time.time() + seconds
+    pass
 
 
 def _safe_json_parse(raw: str) -> dict[str, Any]:
@@ -113,54 +119,18 @@ def _select_relevant_class_points(question: str, class_context: str) -> list[str
 
 
 def _general_explanation(question: str) -> str:
-    q = question.lower()
-    if "linked list" in q and "reversal" in q:
-        return (
-            "Linked list reversal rewires each node to point backward instead of forward.\n"
-            "- Core idea: maintain three pointers `prev`, `curr`, and `next`.\n"
-            "- Initialize: `prev=None`, `curr=head`.\n"
-            "- Repeat until `curr` is None:\n"
-            "  1) Save next node: `next = curr.next`\n"
-            "  2) Reverse link: `curr.next = prev`\n"
-            "  3) Move forward: `prev = curr`, `curr = next`\n"
-            "- End state: `prev` is the new head of reversed list.\n"
-            "- Time complexity: O(n), Space complexity: O(1).\n"
-            "- Quick dry run for 1 -> 2 -> 3:\n"
-            "  Step A: reverse 1, list becomes 1 -> None, remaining 2 -> 3\n"
-            "  Step B: reverse 2, list becomes 2 -> 1 -> None, remaining 3\n"
-            "  Step C: reverse 3, list becomes 3 -> 2 -> 1 -> None"
-        )
-    if "binary search" in q:
-        return (
-            "Binary search works on sorted arrays by halving the search space each step. "
-            "Compare middle element with target, then move to left or right half. "
-            "Time O(log n), space O(1) iterative."
-        )
-    if "dynamic programming" in q:
-        return (
-            "For dynamic programming, define state, transition, and base cases first. "
-            "Then choose top-down memoization or bottom-up tabulation, and verify overlapping subproblems."
-        )
     return (
-        "Break the concept into definition, core idea, algorithm/process, and one worked example. "
-        "Then validate with edge cases and complexity."
+        "This concept involves understanding the basic principles, identifying the core problem, "
+        "and applying a systematic step-by-step solution. It is characterized by its efficiency "
+        "and widespread application in academic and industrial problem-solving."
     )
 
 
 def _practice_checks(question: str) -> str:
-    q = question.lower()
-    if "linked list" in q and "reversal" in q:
-        return (
-            "1) Edge case checks: empty list, single-node list, and two-node list.\n"
-            "2) Validate head update: final head must be previous tail.\n"
-            "3) Ensure no cycle is created (last node should point to None).\n"
-            "4) Compare output nodes count with input nodes count to avoid node loss."
-        )
     return (
-        "1) Test a normal case.\n"
-        "2) Test smallest edge case.\n"
-        "3) Test one tricky boundary case.\n"
-        "4) Verify complexity and correctness constraints."
+        "1) Verify the edge cases.\n"
+        "2) Test with a standard input.\n"
+        "3) Analyze time/space complexity."
     )
 
 
@@ -172,33 +142,18 @@ def _next_step_hint(question: str) -> str:
 
 
 def _fallback_answer(question: str, student_snapshot: str, class_context: str) -> str:
-    snapshot = _safe_json_parse(student_snapshot)
-    weak_topics = snapshot.get("weak_topics", []) if isinstance(snapshot.get("weak_topics", []), list) else []
-    mastery = snapshot.get("overall_mastery")
-    class_points = _select_relevant_class_points(question, class_context)
-    class_points_md = "\n".join([f"- {point}" for point in class_points]) if class_points else "- No specific matching class topic found."
-    weak_md = ", ".join([str(t) for t in weak_topics[:3]]) if weak_topics else "none recorded"
-
     general = _general_explanation(question)
-    next_hint = _next_step_hint(question)
     practice = _practice_checks(question)
 
     return (
-        "## Direct Answer\n"
-        "I could not reach the AI model right now, so I combined your classroom context with a verified general explanation.\n\n"
-        "## Why (course-aligned)\n"
-        f"- Student mastery snapshot: {mastery if mastery is not None else 'not available'}\n"
-        f"- Weak topics to prioritize: {weak_md}\n"
-        "- Relevant class context used:\n"
-        f"{class_points_md}\n\n"
-        "## Steps\n"
-        f"1. Problem focus: {question}.\n"
-        "2. Classroom-first anchor: review the matched topic/material above.\n"
-        f"3. General explanation (detailed):\n{general}\n"
-        f"4. Practice checklist:\n{practice}\n"
-        "5. Verification: explain why each step is correct and state time/space complexity with reason.\n\n"
-        "## Next Step\n"
-        f"{next_hint}"
+        "## Quick Answer\n"
+        "I am currently operating in offline mode as I couldn't reach the AI model, but I can still provide a general overview of this topic.\n\n"
+        "## Deep Dive / Why\n"
+        f"The topic '{question}' is a fundamental concept. {general}\n\n"
+        "## Step-by-Step / Examples\n"
+        f"To master this, follow these steps:\n{practice}\n\n"
+        "## Pro Tip / Next Concept\n"
+        "Try to implement a small version of this concept yourself to see it in action!"
     )
 
 
@@ -215,13 +170,14 @@ async def generate_personalized_student_answer(
             "mode": "fallback",
         }
 
+    last_error_msg = ""
     for key in keys:
         try:
             llm = ChatGoogleGenerativeAI(
                 model="gemini-2.0-flash",
-                temperature=0.2,
-                max_output_tokens=700,
-                max_retries=0,
+                temperature=0.7,
+                max_output_tokens=1000,
+                max_retries=1,
                 google_api_key=key,
             )
             chain = chat_prompt | llm | StrOutputParser()
@@ -235,14 +191,18 @@ async def generate_personalized_student_answer(
             )
             return {"answer": answer, "mode": "model"}
         except Exception as e:
-            msg = str(e).lower()
-            if "quota" in msg or "resourceexhausted" in msg or "429" in msg:
-                _cooldown_key(key, 900)
-            else:
-                _cooldown_key(key, 300)
+            err_str = str(e).lower()
+            if "exhausted" in err_str or "quota" in err_str or "429" in err_str:
+                last_error_msg = "My AI free-tier rate limits have been temporarily reached (please try again in 1 minute)."
+            print(f"Chatbot Agent Error with key {key[:5]}...: {e}")
             continue
 
+    if last_error_msg:
+        fallback_notice = f"**System Notice**: {last_error_msg}\n\n"
+    else:
+        fallback_notice = ""
+
     return {
-        "answer": _fallback_answer(question, student_snapshot, class_context),
+        "answer": fallback_notice + _fallback_answer(question, student_snapshot, class_context),
         "mode": "fallback",
     }

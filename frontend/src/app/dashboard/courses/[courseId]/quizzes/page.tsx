@@ -28,6 +28,7 @@ interface QuizItem {
     text: string;
     options: string[];
     correct_option_index: number;
+    explanation?: string;
   }[];
   created_at?: string;
 }
@@ -38,6 +39,7 @@ interface ReviewItem {
   your_answer: number;
   correct_answer: number;
   correct: boolean;
+  explanation?: string;
 }
 
 type ViewState = "list" | "taking" | "result";
@@ -77,6 +79,8 @@ export default function StudentQuizzes() {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [generateTopic, setGenerateTopic] = useState("");
   const [generateTitle, setGenerateTitle] = useState("");
+  const [generateCount, setGenerateCount] = useState(5);
+  const [generateDifficulty, setGenerateDifficulty] = useState("medium");
   const [generating, setGenerating] = useState(false);
 
   const loadQuizzes = useCallback(async (cid: string) => {
@@ -150,6 +154,8 @@ export default function StudentQuizzes() {
         course_id: courseId,
         topic: generateTopic.trim(),
         title: generateTitle.trim() || undefined,
+        num_questions: generateCount,
+        difficulty: generateDifficulty,
       });
       setShowGenerateModal(false);
       setGenerateTopic("");
@@ -195,6 +201,7 @@ export default function StudentQuizzes() {
                 options: q.options,
                 your_answer: answers[idx] ?? -1,
                 correct_answer: q.correct_option_index,
+                explanation: q.explanation,
                 correct: isCorrect
             };
         });
@@ -474,6 +481,17 @@ export default function StudentQuizzes() {
                         );
                       })}
                     </div>
+
+                    {r.explanation && (
+                      <div className="mt-4 p-4 bg-blue-50/50 rounded-xl border border-blue-100/50">
+                        <p className="text-sm font-bold text-blue-800 mb-1 flex items-center gap-2">
+                          <ClipboardList className="w-4 h-4" /> Explanation
+                        </p>
+                        <p className="text-sm text-blue-700 leading-relaxed">
+                          {r.explanation}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </motion.div>
@@ -502,14 +520,12 @@ export default function StudentQuizzes() {
               AI-generated and instructor-created quizzes.
             </p>
           </div>
-          {isTeacher && (
-             <button 
-               onClick={() => setShowGenerateModal(true)}
-               className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors whitespace-nowrap"
-             >
-                 <PlusCircle className="w-4 h-4" /> Generate Quiz
-             </button>
-          )}
+          <button 
+            onClick={() => setShowGenerateModal(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-sm transition-colors whitespace-nowrap"
+          >
+              <PlusCircle className="w-4 h-4" /> Generate Quiz
+          </button>
         </div>
 
         {/* Generate Modal */}
@@ -551,6 +567,33 @@ export default function StudentQuizzes() {
                       className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium"
                     />
                   </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Question Count</label>
+                      <select
+                        value={generateCount}
+                        onChange={(e) => setGenerateCount(Number(e.target.value))}
+                        className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium bg-white"
+                      >
+                        {[3, 5, 8, 10, 15].map(n => (
+                          <option key={n} value={n}>{n} Questions</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Difficulty</label>
+                      <select
+                        value={generateDifficulty}
+                        onChange={(e) => setGenerateDifficulty(e.target.value)}
+                        className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all font-medium bg-white"
+                      >
+                        <option value="easy">Easy</option>
+                        <option value="medium">Medium</option>
+                        <option value="hard">Hard</option>
+                      </select>
+                    </div>
+                  </div>
                   
                   <div className="pt-4 flex justify-end gap-3">
                     <button
@@ -586,14 +629,22 @@ export default function StudentQuizzes() {
             Loading quizzes...
           </div>
         ) : quizzes.length === 0 ? (
-          <div className="py-16 text-center border-2 border-dashed border-gray-200 rounded-2xl">
-            <ClipboardList className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 font-medium text-lg">
-              No quizzes available.
+          <div className="py-20 text-center border-2 border-dashed border-gray-200 rounded-3xl bg-white/50 backdrop-blur-sm">
+            <div className="w-16 h-16 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-gray-100">
+               <ClipboardList className="w-8 h-8 text-gray-300" />
+            </div>
+            <p className="text-gray-900 font-bold text-xl mb-2">
+              No quizzes available yet
             </p>
-            <p className="text-sm text-gray-400 mt-1">
-              Your instructor will generate quizzes for this course.
+            <p className="text-gray-500 mb-8 max-w-sm mx-auto">
+              Ready to test your knowledge? Use our AI generator to practice any topic right now!
             </p>
+            <button 
+              onClick={() => setShowGenerateModal(true)}
+              className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-all hover:scale-105 active:scale-95"
+            >
+                <PlusCircle className="w-5 h-5" /> Practice with AI
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">

@@ -64,15 +64,10 @@ export default function StudentAssignments() {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    let sid = window.localStorage.getItem(STORAGE_KEY) || "";
-    
-    const auth = getAuthUser();
-    if (!sid && auth) {
-      sid = auth.id;
-      window.localStorage.setItem(STORAGE_KEY, sid);
-    }
+    const sid = window.localStorage.getItem(STORAGE_KEY) || "";
     setStudentId(sid);
     
+    const auth = getAuthUser();
     if (auth) {
        const checkRole = async () => {
          try {

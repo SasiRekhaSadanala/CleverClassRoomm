@@ -6,7 +6,7 @@ export default function Home() {
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 flex justify-between items-center">
           <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-            AI Smart Classroom
+            CleverClassRoom
           </h1>
           <div>
             <Link
@@ -28,7 +28,7 @@ export default function Home() {
       <main className="grow flex items-center justify-center">
         <div className="text-center bg-white p-12 rounded-2xl shadow-xl max-w-lg">
           <h2 className="text-2xl font-bold tracking-tight text-black mb-4">
-            Welcome to AI Smart Classroom
+            Welcome to CleverClassRoom
           </h2>
           <p className="text-black mb-8">
             Create your own classrooms, share a code with others to join, and

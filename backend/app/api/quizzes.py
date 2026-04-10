@@ -31,6 +31,8 @@ class AIQuizGenerate(BaseModel):
     course_id: PydanticObjectId
     topic: str
     title: Optional[str] = None
+    num_questions: int = 5
+    difficulty: str = "medium"
 
 
 # ─── Create quiz manually ───────────────────────────────────────────────────
@@ -61,13 +63,18 @@ async def ai_generate_quiz(payload: AIQuizGenerate):
     Calls the Quiz Agent (Gemini or mock) to generate 5 MCQ questions
     for the provided topic and saves the resulting Quiz to MongoDB.
     """
-    raw_questions = await generate_quiz_questions(payload.topic)
+    raw_questions = await generate_quiz_questions(
+        payload.topic, 
+        num_questions=payload.num_questions, 
+        difficulty=payload.difficulty
+    )
 
     questions = [
         Question(
             text=q["text"],
             options=q["options"],
             correct_option_index=q["correct_option_index"],
+            explanation=q.get("explanation"),
             topic_ids=[payload.topic.strip().lower()],
         )
         for q in raw_questions
@@ -168,6 +175,7 @@ async def submit_quiz(quiz_id: PydanticObjectId, submission: QuizSubmit):
             "your_answer": submission.answers[i] if i < len(submission.answers) else -1,
             "correct_answer": q.correct_option_index,
             "options": q.options,
+            "explanation": q.explanation,
             "correct": (
                 i < len(submission.answers)
                 and submission.answers[i] == q.correct_option_index

@@ -106,7 +106,7 @@ export default function Sidebar({
         </div>
         <div>
           <h2 className="text-xl font-bold text-white tracking-tight">
-            Smart Class
+            CleverClassRoom
           </h2>
           <p className="text-xs text-blue-400 font-medium">Agentic Platform</p>
         </div>

@@ -4,10 +4,11 @@ import React, { useState, useRef, useEffect } from "react";
 import TopNav from "@/components/layout/TopNav";
 import { motion, AnimatePresence } from "framer-motion";
 import { useParams } from "next/navigation";
-import { Bot, User, Send, BrainCircuit, Loader2 } from "lucide-react";
+import { Bot, User, Send, BrainCircuit, Loader2, BookOpen } from "lucide-react";
 import { api } from "@/lib/api";
 
 import { getAuthUser } from "@/lib/auth";
+import ReactMarkdown from "react-markdown";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -114,7 +115,13 @@ export default function CourseTutor() {
                                     {isAssistant ? <Bot className="w-5 h-5"/> : <User className="w-5 h-5"/>}
                                 </div>
                                 <div className={`px-5 py-3.5 max-w-[80%] rounded-2xl text-[15px] leading-relaxed shadow-sm ${isAssistant ? 'bg-gray-100/80 text-gray-800 rounded-tl-sm border border-gray-200/60' : 'bg-blue-600 text-white rounded-tr-sm'}`}>
-                                    {msg.content}
+                                    {isAssistant ? (
+                                        <div className="prose prose-sm max-w-none prose-p:leading-relaxed prose-headings:font-black prose-headings:mb-2 prose-headings:mt-4 first:prose-headings:mt-0">
+                                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                                        </div>
+                                    ) : (
+                                        msg.content
+                                    )}
                                 </div>
                             </motion.div>
                         )

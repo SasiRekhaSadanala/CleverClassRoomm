@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     client.close()
 
-app = FastAPI(title="AI Smart Classroom API", lifespan=lifespan)
+app = FastAPI(title="CleverClassRoom API", lifespan=lifespan)
 
 # CORS middleware
 origins = [
@@ -88,4 +88,4 @@ async def serve_upload(file_path: str):
 
 @app.get("/")
 async def root():
-    return {"message": "Welcome to AI Smart Classroom API"}
+    return {"message": "Welcome to CleverClassRoom API"}

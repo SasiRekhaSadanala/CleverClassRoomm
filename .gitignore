@@ -1,27 +1,46 @@
-# Dependencies
-node_modules/
-.venv/
-venv/
-__pycache__/
-*.pyc
-.next/
-out/
-build/
-dist/
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# IDEs
+# OS / editor
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/
 
-# OS
-.DS_Store
-Thumbs.db
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Project Specific
-backend/uploads/*
-!backend/uploads/.gitkeep
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Python (backend)
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+
+# Node / Next (frontend)
+node_modules/
+.next/
+out/
+dist/
+coverage/
+
+# Build artifacts
+build/
+
+# App runtime storage
+uploads/
+backend/uploads/
+
+# Local databases
+*.db
+*.sqlite3
