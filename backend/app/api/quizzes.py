@@ -1,9 +1,11 @@
-from fastapi import APIRouter, HTTPException
+import json
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import List, Optional
 from app.models.quiz import Quiz, Question, QuizResult
+from app.models.course import Course, Topic
 from beanie import PydanticObjectId
-from app.agents.quiz_agent import generate_quiz_questions
+from app.agents.quiz_agent import generate_quiz_questions, TopicNotInNotesError
 from app.agents.analytics import update_knowledge_profile
 
 router = APIRouter()
@@ -33,6 +35,7 @@ class AIQuizGenerate(BaseModel):
     title: Optional[str] = None
     num_questions: int = 5
     difficulty: str = "medium"
+    user_id: Optional[str] = None
 
 
 # ─── Create quiz manually ───────────────────────────────────────────────────
@@ -60,14 +63,34 @@ async def create_quiz(quiz_data: QuizCreate):
 @router.post("/ai-generate")
 async def ai_generate_quiz(payload: AIQuizGenerate):
     """
-    Calls the Quiz Agent (Gemini or mock) to generate 5 MCQ questions
-    for the provided topic and saves the resulting Quiz to MongoDB.
+    Calls the Quiz Agent (Gemini or mock) to generate MCQ questions
+    for the provided topic. Validates the topic against class notes first.
     """
-    raw_questions = await generate_quiz_questions(
-        payload.topic, 
-        num_questions=payload.num_questions, 
-        difficulty=payload.difficulty
-    )
+    # Build class context from course topics/materials
+    class_context = ""
+    try:
+        topics = await Topic.find(Topic.course_id == str(payload.course_id)).to_list()
+        topic_payload = []
+        for t in topics[:10]:
+            materials = [{"title": m.title, "type": m.type} for m in (t.materials or [])[:5]]
+            topic_payload.append({
+                "title": t.title,
+                "description": t.description,
+                "materials": materials,
+            })
+        class_context = json.dumps({"topics": topic_payload}, ensure_ascii=True)[:4000]
+    except Exception as e:
+        print(f"[QuizAPI] Failed to build class context: {e}")
+
+    try:
+        raw_questions = await generate_quiz_questions(
+            payload.topic,
+            num_questions=payload.num_questions,
+            difficulty=payload.difficulty,
+            class_context=class_context,
+        )
+    except TopicNotInNotesError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     questions = [
         Question(
@@ -81,7 +104,12 @@ async def ai_generate_quiz(payload: AIQuizGenerate):
     ]
 
     title = payload.title or f"AI Quiz: {payload.topic}"
-    quiz = Quiz(title=title, course=payload.course_id, questions=questions)
+    quiz = Quiz(
+        title=title,
+        course=payload.course_id,
+        questions=questions,
+        creator_id=payload.user_id or None,
+    )
     await quiz.insert()
 
     return {
@@ -92,11 +120,28 @@ async def ai_generate_quiz(payload: AIQuizGenerate):
     }
 
 
-# ─── List quizzes for a course ───────────────────────────────────────────────
+# ─── List quizzes for a course (filtered by privacy) ────────────────────────
 @router.get("/course/{course_id}")
-async def list_quizzes_for_course(course_id: PydanticObjectId):
-    quizzes = await Quiz.find(Quiz.course.id == course_id).to_list()
-    return quizzes
+async def list_quizzes_for_course(
+    course_id: PydanticObjectId,
+    user_id: Optional[str] = Query(None),
+    role: Optional[str] = Query(None),
+):
+    """Return quizzes visible to this user: global quizzes + their own private ones."""
+    all_quizzes = await Quiz.find(Quiz.course.id == course_id).to_list()
+
+    # Filter: show global quizzes (creator_id is None) + user's own practice quizzes
+    visible = []
+    for q in all_quizzes:
+        if q.creator_id is None:
+            # Official/global quiz — visible to everyone
+            visible.append(q)
+        elif user_id and q.creator_id == user_id:
+            # User's own private practice quiz
+            visible.append(q)
+        # else: someone else's private quiz — skip
+
+    return visible
 
 
 # ─── Get a single quiz (for quiz-taking) ────────────────────────────────────

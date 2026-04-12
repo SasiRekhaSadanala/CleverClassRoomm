@@ -18,6 +18,7 @@ class Quiz(Document):
     title: str
     course: Link[Course]
     questions: List[Question]
+    creator_id: Optional[str] = None  # None = official/global, set = private practice
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Settings:

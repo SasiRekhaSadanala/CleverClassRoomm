@@ -86,9 +86,14 @@ export default function StudentQuizzes() {
   const loadQuizzes = useCallback(async (cid: string) => {
     setLoading(true);
     try {
-      const sid = window.localStorage.getItem(STORAGE_KEY) || "";
+      const authUser = getAuthUser();
+      const sid = authUser?.id || window.localStorage.getItem(STORAGE_KEY) || "";
+      const userRole = authUser?.role || "student";
+
       const [quizRes, resultRes] = await Promise.all([
-        api.get(`/quizzes/course/${cid}`),
+        api.get(`/quizzes/course/${cid}`, {
+          params: { user_id: sid, role: userRole },
+        }),
         sid
           ? api.get(`/quizzes/student/${sid}/results`)
           : Promise.resolve({ data: [] }),
@@ -150,12 +155,15 @@ export default function StudentQuizzes() {
     setGenerating(true);
     setStatus("");
     try {
+      const authUser = getAuthUser();
+      const uid = authUser?.id || studentId;
       await api.post("/quizzes/ai-generate", {
         course_id: courseId,
         topic: generateTopic.trim(),
         title: generateTitle.trim() || undefined,
         num_questions: generateCount,
         difficulty: generateDifficulty,
+        user_id: uid || undefined,
       });
       setShowGenerateModal(false);
       setGenerateTopic("");
