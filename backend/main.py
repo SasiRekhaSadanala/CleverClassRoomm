@@ -14,6 +14,7 @@ from app.models.user import User
 from app.models.course import Course, Topic
 from app.models.assignment import Assignment, Submission
 from app.models.quiz import Quiz, QuizResult
+from app.models.calendar_event import CalendarEvent
 from app.models.enrollment import Enrollment
 
 # MongoDB connection URL
@@ -26,7 +27,7 @@ async def lifespan(app: FastAPI):
     # Startup
     client = AsyncMongoClient(MONGO_URL)
     await init_beanie(database=client[DATABASE_NAME], document_models=[
-        User, Course, Topic, Assignment, Submission, Quiz, QuizResult, Enrollment
+        User, Course, Topic, Assignment, Submission, Quiz, QuizResult, Enrollment, CalendarEvent
     ])
     yield
     # Shutdown
