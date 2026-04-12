@@ -165,33 +165,7 @@ export default function CourseTutor() {
             </div>
         </div>
         
-        <AnimatePresence>
-            {sources.length > 0 && (
-                <motion.div 
-                   initial={{ opacity: 0, y: 10 }}
-                   animate={{ opacity: 1, y: 0 }}
-                   exit={{ opacity: 0, y: 10 }}
-                   className="mt-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-200"
-                >
-                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1">
-                        <BookOpen className="w-4 h-4" /> Class Sources Used by AI
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                        {sources.slice(0, 6).map((s, idx) => (
-                            <a
-                                key={`${s.url}-${idx}`}
-                                href={s.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-xs font-bold text-purple-700 bg-purple-50 border border-purple-100 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition-colors"
-                            >
-                                {s.topic}: {s.title}
-                            </a>
-                        ))}
-                    </div>
-                </motion.div>
-            )}
-        </AnimatePresence>
+
 
       </main>
     </div>

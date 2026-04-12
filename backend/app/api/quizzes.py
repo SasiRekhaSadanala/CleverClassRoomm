@@ -281,3 +281,6 @@ async def delete_quiz(quiz_id: PydanticObjectId, user_id: Optional[str] = Query(
     await quiz.delete()
 
     return {"message": "Quiz deleted successfully"}
+
+
+

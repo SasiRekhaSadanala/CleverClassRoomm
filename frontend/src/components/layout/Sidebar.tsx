@@ -75,7 +75,7 @@ export default function Sidebar({
       icon: BookOpen,
     },
     {
-      name: "Progress",
+      name: "Dashboard",
       href: `/dashboard/courses/${currCourseId}/progress`,
       icon: BarChart,
     },
