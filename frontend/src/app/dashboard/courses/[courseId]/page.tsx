@@ -112,8 +112,8 @@ export default function CourseStream() {
       btn: "bg-amber-600 hover:bg-amber-700"
     },
     {
-      title: "Progress Analytics",
-      desc: "View your topic-level mastery and learning trends over time.",
+      title: "Dashboard",
+      desc: "View student rankings, total scores, and class-wide performance trends.",
       path: `/dashboard/courses/${courseId}/progress`,
       icon: BarChart,
       color: "bg-rose-100 text-rose-600 border-rose-200",

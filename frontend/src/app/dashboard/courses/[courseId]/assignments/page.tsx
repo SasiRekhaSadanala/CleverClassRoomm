@@ -64,10 +64,18 @@ export default function StudentAssignments() {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    const sid = window.localStorage.getItem(STORAGE_KEY) || "";
+    setStatus("");
+    let sid = window.localStorage.getItem(STORAGE_KEY) || "";
+    const auth = getAuthUser();
+    
+    // Simplified recovery: Any logged-in user on this page is treated as the active student session.
+    if ((!sid || sid === "undefined" || sid === "null") && auth) {
+      sid = auth.id;
+      window.localStorage.setItem(STORAGE_KEY, sid);
+    }
+    
     setStudentId(sid);
     
-    const auth = getAuthUser();
     if (auth) {
        const checkRole = async () => {
          try {
@@ -95,7 +103,11 @@ export default function StudentAssignments() {
   const loadAssignments = async (cid: string) => {
     setLoading(true);
     try {
-      const sid = window.localStorage.getItem(STORAGE_KEY) || "";
+      let sid = window.localStorage.getItem(STORAGE_KEY) || "";
+      if (!sid || sid === "undefined" || sid === "null") {
+        const auth = getAuthUser();
+        if (auth) sid = auth.id;
+      }
       const assgRes = await api.get(`/assignments/${cid}`);
       const assgs = assgRes.data || [];
 
@@ -270,6 +282,7 @@ export default function StudentAssignments() {
   };
 
   const getStatusBadge = (status: string, score?: number) => {
+    const isTeacherRole = isTeacher;
     switch (status) {
       case "pending":
       case "submitted":
@@ -279,6 +292,19 @@ export default function StudentAssignments() {
           </span>
         );
       case "evaluated":
+        if (isTeacherRole) {
+          return (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-700 text-xs font-bold rounded-full">
+              <CheckCircle2 className="w-3 h-3" /> Evaluated (Draft)
+            </span>
+          );
+        }
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-600 text-xs font-bold rounded-full">
+            <Loader2 className="w-3 h-3 animate-spin" /> Final Review
+          </span>
+        );
+      case "sent":
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full">
             <CheckCircle2 className="w-3 h-3" /> Score: {score}
@@ -365,8 +391,9 @@ export default function StudentAssignments() {
                         onChange={(e) => setNewType(e.target.value)}
                         className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 outline-none transition-all font-medium bg-white"
                       >
-                        <option value="coding">Coding</option>
-                        <option value="theory">Theory/Essay</option>
+                        <option value="coding">Coding (Auto-eval)</option>
+                        <option value="content">Content/PDF</option>
+                        <option value="mixed">Mixed (Code + Content)</option>
                       </select>
                     </div>
                     <div>
@@ -633,7 +660,7 @@ export default function StudentAssignments() {
 
                     {/* Feedback Area */}
                     <AnimatePresence>
-                      {isExpanded && result && (
+                      {isExpanded && result && (result.status === "sent" || isTeacher) && (
                         <motion.div
                           initial={{ height: 0, opacity: 0 }}
                           animate={{ height: "auto", opacity: 1 }}

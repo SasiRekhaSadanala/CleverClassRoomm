@@ -1,6 +1,6 @@
 from typing import List, Optional
 from datetime import datetime
-from beanie import Document, Link
+from beanie import Document, Link, PydanticObjectId
 from pydantic import BaseModel, Field
 from .course import Course
 from .user import User
@@ -26,8 +26,8 @@ class Quiz(Document):
 
 
 class QuizResult(Document):
-    quiz_id: str
-    student_id: str
+    quiz_id: PydanticObjectId
+    student_id: PydanticObjectId
     score: int
     total: int
     answers: List[int]  # student's selected option indices

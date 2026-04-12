@@ -7,9 +7,12 @@ from .user import User
 from .course import Course, Topic
 
 class AssignmentType(str, Enum):
-    THEORY = "theory"
+    CONTENT = "content"
     CODING = "coding"
-    PROJECT = "project"
+    MIXED = "mixed"
+    # Legacy support
+    THEORY = "theory"
+    CODE = "code"
 
 class Assignment(Document):
     title: str
@@ -27,6 +30,7 @@ class SubmissionStatus(str, Enum):
     PENDING = "pending"
     EVALUATED = "evaluated"
     FAILED = "failed"
+    SENT = "sent"
 
 class Submission(Document):
     assignment: Link[Assignment]

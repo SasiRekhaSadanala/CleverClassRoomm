@@ -55,7 +55,7 @@ def _serialize_submission(submission: Submission) -> dict:
 class AssignmentCreate(BaseModel):
     title: str
     description: str
-    type: str # 'theory', 'coding', 'project'
+    type: str # 'content', 'code', 'mixed'
     course_id: PydanticObjectId
     due_date: datetime
     test_cases: Optional[List[dict]] = None
@@ -64,37 +64,7 @@ class CodeSubmission(BaseModel):
     student_id: PydanticObjectId
     code: str
 
-async def evaluate_code_workflow(submission_id: PydanticObjectId, code: str, student_id: str, description: str, test_cases: list):
-    from app.agents.code_grader_agent import grade_code_submission
-    
-    submission = await Submission.get(submission_id)
-    if not submission:
-        return
-        
-    try:
-        # 1. AI GRADING
-        result = await grade_code_submission(description, code, test_cases)
-        
-        submission.score = result.get("score", 0)
-        submission.feedback = result.get("feedback", "No feedback provided.")
-        submission.status = SubmissionStatus.EVALUATED
-        await submission.save()
-        
-        # 2. CODE UNDERSTANDING AGENT (Optional secondary analysis)
-        # concepts = await analyze_code_semantics(code)
-        concepts = result.get("concepts_identified", [])
-        
-        # 3. ANALYTICS AGENT
-        if concepts:
-            await update_knowledge_profile(student_id, concepts, submission.score)
-            
-    except Exception as e:
-        import traceback
-        print(f"Workflow error: {e}")
-        traceback.print_exc()
-        submission.status = SubmissionStatus.FAILED
-        submission.feedback = f"Error during evaluation: {str(e)}"
-        await submission.save()
+
 
 @router.post("")
 async def create_assignment(data: AssignmentCreate):
@@ -104,10 +74,14 @@ async def create_assignment(data: AssignmentCreate):
             detail="Coding assignments must include test_cases for accurate evaluation.",
         )
 
+    ass_type_str = data.type
+    if ass_type_str == "code":
+        ass_type_str = "coding"
+
     assignment = Assignment(
         title=data.title,
         description=data.description,
-        type=AssignmentType(data.type),
+        type=AssignmentType(ass_type_str),
         course=data.course_id,
         due_date=data.due_date,
         test_cases=data.test_cases
@@ -141,7 +115,7 @@ async def list_submissions(assignment_id: PydanticObjectId):
     return results
 
 @router.post("/{assignment_id}/submit-code")
-async def submit_code(assignment_id: PydanticObjectId, submission_data: CodeSubmission, background_tasks: BackgroundTasks):
+async def submit_code(assignment_id: PydanticObjectId, submission_data: CodeSubmission):
     assignment = await Assignment.get(assignment_id)
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
@@ -162,17 +136,7 @@ async def submit_code(assignment_id: PydanticObjectId, submission_data: CodeSubm
     )
     await submission.insert()
     
-    # Trigger background evaluation pipeline
-    background_tasks.add_task(
-        evaluate_code_workflow,
-        submission.id,
-        submission_data.code,
-        str(submission_data.student_id),
-        assignment.description,
-        assignment.test_cases or []
-    )
-    
-    return {"message": "Code submitted successfully. Evaluation running in background.", "submission_id": str(submission.id)}
+    return {"message": "Code submitted successfully. Awaiting teacher evaluation.", "submission_id": str(submission.id)}
 
 
 class TheorySubmission(BaseModel):
@@ -180,34 +144,8 @@ class TheorySubmission(BaseModel):
     text: str
 
 
-async def evaluate_theory_workflow(submission_id: PydanticObjectId, text: str, student_id: str, description: str):
-    from app.agents.theory_grader_agent import grade_theory_submission
-    
-    submission = await Submission.get(submission_id)
-    if not submission:
-        return
-        
-    try:
-        # 1. AI GRADING
-        result = await grade_theory_submission(description, text)
-        
-        submission.score = result.get("score", 0)
-        submission.feedback = result.get("feedback", "No feedback provided.")
-        submission.status = SubmissionStatus.EVALUATED
-        await submission.save()
-        
-        # 2. ANALYTICS AGENT
-        concepts = result.get("concepts_identified", [])
-        if concepts:
-            await update_knowledge_profile(student_id, concepts, submission.score)
-            
-    except Exception as e:
-        import traceback
-        print(f"Theory Workflow error: {e}")
-        traceback.print_exc()
-        submission.status = SubmissionStatus.FAILED
-        submission.feedback = f"Error during theory evaluation: {str(e)}"
-        await submission.save()
+
+
 
 
 @router.post("/{assignment_id}/submit-file")
@@ -249,23 +187,20 @@ async def submit_file(
     )
     await submission.insert()
     
-    # Optional: Basic feedback for file submissions if it's a PDF (mocked for now)
-    submission.score = 0
-    submission.feedback = "File received. Awaiting manual review or background analysis."
-    submission.status = SubmissionStatus.EVALUATED # Set to evaluated for static view
+    submission.status = SubmissionStatus.PENDING # Awaiting teacher trigger
     await submission.save()
     
     return {"message": "File submitted successfully", "submission_id": str(submission.id)}
 
 
 @router.post("/{assignment_id}/submit-theory")
-async def submit_theory(assignment_id: PydanticObjectId, submission_data: TheorySubmission, background_tasks: BackgroundTasks):
+async def submit_theory(assignment_id: PydanticObjectId, submission_data: TheorySubmission):
     assignment = await Assignment.get(assignment_id)
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
         
-    if assignment.type != AssignmentType.THEORY:
-        raise HTTPException(status_code=400, detail="Not a theory assignment")
+    if assignment.type == AssignmentType.CODING:
+        raise HTTPException(status_code=400, detail="Use submit-code for coding assignments")
 
     # SINGLE SUBMISSION CHECK
     existing = await Submission.find_one(
@@ -283,15 +218,7 @@ async def submit_theory(assignment_id: PydanticObjectId, submission_data: Theory
     )
     await submission.insert()
     
-    background_tasks.add_task(
-        evaluate_theory_workflow,
-        submission.id,
-        submission_data.text,
-        str(submission_data.student_id),
-        assignment.description
-    )
-    
-    return {"message": "Essay submitted successfully. AI evaluation running.", "submission_id": str(submission.id)}
+    return {"message": "Answer submitted successfully. Awaiting teacher evaluation.", "submission_id": str(submission.id)}
 
 
 @router.get("/student/{student_id}")

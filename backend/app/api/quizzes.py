@@ -23,7 +23,7 @@ class QuizCreate(BaseModel):
 
 
 class QuizSubmit(BaseModel):
-    student_id: str
+    student_id: PydanticObjectId
     answers: List[int]  # Indices of selected options
 
 
@@ -140,8 +140,8 @@ async def submit_quiz(quiz_id: PydanticObjectId, submission: QuizSubmit):
 
     # SINGLE SUBMISSION CHECK
     existing = await QuizResult.find_one(
-        QuizResult.quiz_id == str(quiz_id),
-        QuizResult.student_id == str(submission.student_id)
+        QuizResult.quiz_id == quiz_id,
+        QuizResult.student_id == submission.student_id
     )
     if existing:
         raise HTTPException(status_code=400, detail="You have already submitted this quiz.")
@@ -155,7 +155,7 @@ async def submit_quiz(quiz_id: PydanticObjectId, submission: QuizSubmit):
 
     # Persist quiz result to DB
     result = QuizResult(
-        quiz_id=str(quiz_id),
+        quiz_id=quiz_id,
         student_id=submission.student_id,
         score=score,
         total=total,
@@ -219,20 +219,20 @@ async def submit_quiz(quiz_id: PydanticObjectId, submission: QuizSubmit):
 
 # ─── Get quiz results for a student ─────────────────────────────────────────
 @router.get("/student/{student_id}/results")
-async def get_student_results(student_id: str):
+async def get_student_results(student_id: PydanticObjectId):
     results = await QuizResult.find(QuizResult.student_id == student_id).to_list()
     return results
 
 
 # ─── Review a completed quiz (get full answer breakdown) ────────────────────
 @router.get("/{quiz_id}/review/{student_id}")
-async def review_quiz(quiz_id: PydanticObjectId, student_id: str):
+async def review_quiz(quiz_id: PydanticObjectId, student_id: PydanticObjectId):
     quiz = await Quiz.get(quiz_id)
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
 
     result = await QuizResult.find_one(
-        QuizResult.quiz_id == str(quiz_id),
+        QuizResult.quiz_id == quiz_id,
         QuizResult.student_id == student_id,
     )
     if not result:
@@ -277,7 +277,7 @@ async def delete_quiz(quiz_id: PydanticObjectId, user_id: Optional[str] = Query(
         raise HTTPException(status_code=403, detail="You can only delete your own practice quizzes")
 
     # Also delete associated results
-    await QuizResult.find(QuizResult.quiz_id == str(quiz_id)).delete()
+    await QuizResult.find(QuizResult.quiz_id == quiz_id).delete()
     await quiz.delete()
 
     return {"message": "Quiz deleted successfully"}

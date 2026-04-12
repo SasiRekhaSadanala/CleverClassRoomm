@@ -160,7 +160,7 @@ async def _invoke_quiz_llm(prompt: PromptTemplate, topic: str, num_questions: in
         print("Quiz Agent Warning: No GOOGLE_API_KEY resolved at runtime.")
     
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model="gemini-1.5-flash",
         temperature=0.25,
         google_api_key=api_key,
     )

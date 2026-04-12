@@ -18,7 +18,10 @@ import {
   Code,
   FileText,
   Loader2,
-  ExternalLink
+  ExternalLink,
+  Send,
+  MoreVertical,
+  Play
 } from "lucide-react";
 
 interface Submission {
@@ -110,6 +113,17 @@ export default function Evaluator() {
     <div className="flex flex-col h-full overflow-y-auto bg-gray-50 border-t border-gray-100">
       <TopNav title="AI Evaluator" />
       <main className="flex-1 p-6 lg:p-8 max-w-6xl mx-auto w-full">
+        {/* Status Messages */}
+        <AnimatePresence>
+            {loading && (
+                <div className="fixed top-4 right-4 z-[100]">
+                    <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl shadow-xl border border-gray-100 flex items-center gap-3">
+                        <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" />
+                        <span className="text-sm font-bold text-gray-700">Updating...</span>
+                    </div>
+                </div>
+            )}
+        </AnimatePresence>
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
             <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center shadow-sm">
@@ -197,42 +211,111 @@ export default function Evaluator() {
                                             </div>
                                         ) : (
                                             <div className="overflow-x-auto">
+                                                <div className="flex items-center justify-between mb-6">
+                                                    <div className="flex items-center gap-3">
+                                                       <Users className="w-5 h-5 text-gray-400" />
+                                                       <h4 className="font-black text-gray-900 uppercase tracking-tight">Class Submissions</h4>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <button 
+                                                            onClick={async () => {
+                                                                setLoading(true);
+                                                                try {
+                                                                    await api.post(`/evaluator/${assignment._id}/evaluate-all`);
+                                                                    window.location.reload();
+                                                                } catch (e) { alert("Evaluation failed"); }
+                                                                finally { setLoading(false); }
+                                                            }}
+                                                            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black hover:bg-indigo-700 transition-all shadow-sm"
+                                                        >
+                                                            <Play className="w-3 h-3" /> Evaluate All
+                                                        </button>
+                                                        <button 
+                                                            onClick={async () => {
+                                                                setLoading(true);
+                                                                try {
+                                                                    await api.post(`/evaluator/${assignment._id}/send-all`);
+                                                                    window.location.reload();
+                                                                } catch (e) { alert("Sending failed"); }
+                                                                finally { setLoading(false); }
+                                                            }}
+                                                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-black hover:bg-emerald-700 transition-all shadow-sm"
+                                                        >
+                                                            <Send className="w-3 h-3" /> Send All
+                                                        </button>
+                                                    </div>
+                                                </div>
+
                                                 <table className="w-full">
                                                     <thead>
                                                         <tr className="text-left border-b border-gray-100">
                                                             <th className="pb-3 text-[10px] font-black uppercase tracking-widest text-gray-400">Student Name</th>
-                                                            <th className="pb-3 text-[10px] font-black uppercase tracking-widest text-gray-400">Score</th>
-                                                            <th className="pb-3 text-[10px] font-black uppercase tracking-widest text-gray-400">Status</th>
-                                                            <th className="pb-3 text-[10px] font-black uppercase tracking-widest text-gray-400 text-right">Review</th>
+                                                            <th className="pb-3 text-[10px] font-black uppercase tracking-widest text-gray-400 text-center">AI Score</th>
+                                                            <th className="pb-3 text-[10px] font-black uppercase tracking-widest text-gray-400 text-center">Status</th>
+                                                            <th className="pb-3 text-[10px] font-black uppercase tracking-widest text-gray-400 text-right">Actions</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
                                                         {assignment.submissions?.map((sub) => (
                                                             <tr key={sub._id} className="border-b border-gray-50 last:border-0">
                                                                 <td className="py-4 font-bold text-gray-900 text-sm whitespace-nowrap">{sub.student_name}</td>
-                                                                <td className="py-4">
-                                                                    <div className="flex items-center gap-2">
+                                                                <td className="py-4 text-center">
+                                                                    <div className="flex items-center justify-center gap-2">
                                                                         <span className={`text-sm font-black ${sub.score && sub.score > 70 ? 'text-emerald-600' : 'text-gray-900'}`}>{sub.score ?? '--'}/100</span>
                                                                         {sub.score && sub.score > 80 && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />}
                                                                     </div>
                                                                 </td>
-                                                                <td className="py-4">
-                                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                                                                        sub.status === 'evaluated' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                                                                <td className="py-4 text-center">
+                                                                    <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                                                        sub.status === 'sent' ? 'bg-emerald-100 text-emerald-700' : 
+                                                                        sub.status === 'evaluated' ? 'bg-indigo-100 text-indigo-700' : 
+                                                                        'bg-gray-100 text-gray-600'
                                                                     }`}>
-                                                                        {sub.status}
+                                                                        {sub.status === 'sent' ? 'Published' : sub.status}
                                                                     </span>
                                                                 </td>
                                                                 <td className="py-4 text-right">
-                                                                    <button 
-                                                                        onClick={() => {
-                                                                            setSelectedSub(sub);
-                                                                            setShowSubModal(true);
-                                                                        }}
-                                                                        className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-indigo-600"
-                                                                    >
-                                                                        <ExternalLink className="w-4 h-4" />
-                                                                    </button>
+                                                                    <div className="flex items-center justify-end gap-1">
+                                                                        <button 
+                                                                            title="Review Content"
+                                                                            onClick={() => {
+                                                                                setSelectedSub(sub);
+                                                                                setShowSubModal(true);
+                                                                            }}
+                                                                            className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-indigo-600"
+                                                                        >
+                                                                            <ExternalLink className="w-4 h-4" />
+                                                                        </button>
+                                                                        <button 
+                                                                            title="Run AI Evaluation"
+                                                                            onClick={async () => {
+                                                                                setLoading(true);
+                                                                                try {
+                                                                                    await api.post(`/evaluator/${assignment._id}/${sub._id}/evaluate`);
+                                                                                    window.location.reload();
+                                                                                } catch (e) { alert("Evaluation failed"); }
+                                                                                finally { setLoading(false); }
+                                                                            }}
+                                                                            className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-amber-600"
+                                                                        >
+                                                                            <BrainCircuit className="w-4 h-4" />
+                                                                        </button>
+                                                                        <button 
+                                                                            title="Send to Student"
+                                                                            disabled={sub.status !== 'evaluated'}
+                                                                            onClick={async () => {
+                                                                                setLoading(true);
+                                                                                try {
+                                                                                    await api.post(`/evaluator/${assignment._id}/${sub._id}/send`);
+                                                                                    window.location.reload();
+                                                                                } catch (e) { alert("Send failed"); }
+                                                                                finally { setLoading(false); }
+                                                                            }}
+                                                                            className="p-2 hover:bg-white hover:shadow-sm rounded-lg transition-all text-emerald-600 disabled:opacity-30 disabled:grayscale"
+                                                                        >
+                                                                            <Send className="w-4 h-4" />
+                                                                        </button>
+                                                                    </div>
                                                                 </td>
                                                             </tr>
                                                         ))}
@@ -317,7 +400,7 @@ export default function Evaluator() {
                 </div>
                 <div>
                   <p className="text-base font-bold text-amber-900">Instructor Access Required</p>
-                  <p className="text-sm font-medium opacity-80">This module is primarily for instructors to evaluate class submissions. You can view your personal feedback in the Progress tab.</p>
+                  <p className="text-sm font-medium opacity-80">This module is primarily for instructors to evaluate class submissions. You can view your personal feedback in the Dashboard tab.</p>
                 </div>
             </div>
         )}
