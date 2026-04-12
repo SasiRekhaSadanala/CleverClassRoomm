@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 from beanie import PydanticObjectId
@@ -5,8 +6,26 @@ from app.models.assignment import Assignment, Submission, SubmissionStatus
 from app.models.course import Course
 from app.agents.evaluator_agent import evaluate_submission
 from app.models.user import User
+from app.utils.file_utils import extract_text_from_file
+from pathlib import Path
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+UPLOAD_DIR = BACKEND_DIR / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 router = APIRouter()
+
+async def _get_submission_file_text(submission: Submission) -> str:
+    if not submission.submission_file_url:
+        return ""
+    
+    # Extract filename from URL (e.g., http://...:8001/uploads/uuid.pdf -> uuid.pdf)
+    filename = submission.submission_file_url.split("/")[-1]
+    file_path = str(UPLOAD_DIR / filename)
+    
+    if os.path.exists(file_path):
+        return extract_text_from_file(file_path)
+    return ""
 
 @router.post("/{assignment_id}/{submission_id}/evaluate")
 async def evaluate_single_submission(assignment_id: PydanticObjectId, submission_id: PydanticObjectId):
@@ -18,11 +37,8 @@ async def evaluate_single_submission(assignment_id: PydanticObjectId, submission
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
 
-    # In a real system, we'd extract text from the PDF if submission_file_url exists.
-    # For now, we'll pass an empty string for file_text or a mock if it exists.
-    # The evaluator_agent handles the rest.
-    
-    result = await evaluate_submission(assignment, submission)
+    file_text = await _get_submission_file_text(submission)
+    result = await evaluate_submission(assignment, submission, file_text=file_text)
     
     submission.score = result.get("score", 0)
     submission.feedback = result.get("feedback", "No feedback provided.")
@@ -37,14 +53,15 @@ async def evaluate_all_submissions(assignment_id: PydanticObjectId):
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
         
+    # v2.1: We removed the PENDING filter so teachers can re-grade everyone if needed
     submissions = await Submission.find(
-        Submission.assignment.id == assignment_id,
-        Submission.status == SubmissionStatus.PENDING
+        Submission.assignment.id == assignment_id
     ).to_list()
     
     count = 0
     for sub in submissions:
-        result = await evaluate_submission(assignment, sub)
+        file_text = await _get_submission_file_text(sub)
+        result = await evaluate_submission(assignment, sub, file_text=file_text)
         sub.score = result.get("score", 0)
         sub.feedback = result.get("feedback", "No feedback provided.")
         sub.status = SubmissionStatus.EVALUATED
@@ -87,31 +104,39 @@ async def get_course_leaderboard(course_id: PydanticObjectId):
     assignment_ids = [a.id for a in assignments]
     assignment_titles = {str(a.id): a.title for a in assignments}
     
-    # Get all students for this course
-    # Assuming students are enrolled or we can find them from submissions
-    # Let's find all submissions for these assignments
+    # Get all submissions for these assignments
     all_submissions = await Submission.find(
-        Submission.assignment.id.in_(assignment_ids),
         fetch_links=True
     ).to_list()
+    
+    # Filter manually for assignment matches to ensure Link compatibility
+    course_submissions = [
+        s for s in all_submissions 
+        if s.assignment and (
+            (hasattr(s.assignment, "id") and s.assignment.id in assignment_ids) or 
+            (s.assignment in assignment_ids)
+        )
+    ]
     
     # Group by student
     student_stats = {} # student_id -> { name, assignments: { ass_id: score }, total }
     
-    for sub in all_submissions:
+    for sub in course_submissions:
         if not sub.student:
             continue
         sid = str(sub.student.id)
         if sid not in student_stats:
+            name = getattr(sub.student, "name", "Student")
+            if not name or name == "Unknown student":
+                 # Fallback to email or ID if name is missing
+                 name = getattr(sub.student, "email", f"Student {sid[:5]}")
+            
             student_stats[sid] = {
-                "name": getattr(sub.student, "name", "Unknown student"),
+                "name": name,
                 "assignments": {},
                 "total": 0
             }
         
-        # Only include score if it's evaluated/sent (or even just evaluated for leaderboard?)
-        # User said "acc to their marks ... total we can see dashboard order"
-        # Usually leaderboard shows published scores.
         score = sub.score or 0
         aid = str(sub.assignment.id)
         student_stats[sid]["assignments"][aid] = score

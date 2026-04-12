@@ -168,7 +168,14 @@ async def submit_file(
         raise HTTPException(status_code=400, detail="You have already submitted this assignment.")
 
     # Save file
-    file_ext = os.path.splitext(file.filename)[1]
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    allowed_extensions = [".pdf", ".ppt", ".pptx", ".py", ".cpp"]
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file type. Allowed types: {', '.join(allowed_extensions)}"
+        )
+
     unique_filename = f"{uuid.uuid4()}{file_ext}"
     upload_path = UPLOAD_DIR / unique_filename
     
@@ -227,4 +234,18 @@ async def list_student_submissions(student_id: PydanticObjectId):
     submissions = await Submission.find(Submission.student.id == student_id).to_list()
 
     return [_serialize_submission(s) for s in submissions]
+
+@router.delete("/{assignment_id}")
+async def delete_assignment(assignment_id: PydanticObjectId):
+    assignment = await Assignment.get(assignment_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+        
+    # Delete associated constant submissions
+    await Submission.find(Submission.assignment.id == assignment_id).delete()
+    
+    # Delete the assignment itself
+    await assignment.delete()
+    
+    return {"message": "Assignment and all its submissions deleted successfully"}
 
