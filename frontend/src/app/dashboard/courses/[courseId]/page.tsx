@@ -14,7 +14,8 @@ import {
   School,
   Loader2,
   AlertCircle,
-  ClipboardCheck
+  ClipboardCheck,
+  CalendarDays
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { getAuthUser } from "@/lib/auth";
@@ -110,6 +111,15 @@ export default function CourseStream() {
       color: "bg-amber-100 text-amber-600 border-amber-200",
       hover: "hover:bg-amber-50 hover:border-amber-300",
       btn: "bg-amber-600 hover:bg-amber-700"
+    },
+    {
+      title: "Class Calendar",
+      desc: "View and manage important dates, exams, and class-specific deadlines.",
+      path: `/dashboard/courses/${courseId}/calendar`,
+      icon: CalendarDays,
+      color: "bg-cyan-100 text-cyan-600 border-cyan-200",
+      hover: "hover:bg-cyan-50 hover:border-cyan-300",
+      btn: "bg-cyan-600 hover:bg-cyan-700"
     },
     {
       title: "Dashboard",

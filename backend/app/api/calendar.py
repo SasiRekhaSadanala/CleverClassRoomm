@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from datetime import datetime
-from beanie import Link, PydanticObjectId
+from beanie import Link, PydanticObjectId, operators
+from beanie.operators import In
 from app.models.calendar_event import CalendarEvent, EventType
 from app.models.assignment import Assignment
 from app.models.enrollment import Enrollment
@@ -28,11 +29,11 @@ class CalendarResponse(BaseModel):
     course_id: str
 
 @router.get("/", response_model=List[CalendarResponse])
-async def get_calendar(user_id: str):
+async def get_calendar(user_id: str, course_id: Optional[str] = None):
     """
     Returns an aggregated list of events:
-    1. Custom teacher-created events for all courses user is in.
-    2. Assignment due dates for all courses user is in.
+    1. Custom teacher-created events for all courses user is in (or one specific course).
+    2. Assignment due dates for all courses user is in (or one specific course).
     """
     try:
         user_poid = PydanticObjectId(user_id)
@@ -43,33 +44,84 @@ async def get_calendar(user_id: str):
     if not current_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # 1. Get all courses the user is part of (as student or teacher)
-    if current_user.role == UserRole.TEACHER:
-        # For teachers, show courses they created
-        courses = await Course.find(Course.teacher.id == current_user.id).to_list()
-        course_ids = [c.id for c in courses]
+    # Determine which courses to fetch events for
+    course_ids = []
+    if course_id:
+        # Filter for a specific classroom (Local Calendar)
+        try:
+            course_ids = [PydanticObjectId(course_id)]
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid course_id format")
     else:
-        # For students, show enrolled courses
-        enrollments = await Enrollment.find(
-            {"$or": [{"student_id": str(user_id)}, {"student_id": user_poid}]}
-        ).to_list()
-        course_ids = []
+        # Fetch for all classrooms (Global Calendar) - Inclusive aggregation
+        # 1. Courses they teach
+        courses_taught = await Course.find({
+            "$or": [
+                {"teacher.id": current_user.id},
+                {"teacher.$id": current_user.id},
+                {"teacher.id": user_id},
+                {"teacher_id": str(user_id)}
+            ]
+        }).to_list()
+        course_ids.extend([c.id for c in courses_taught])
+        
+        # 2. Courses they are enrolled in (via specialized Enrollment model)
+        enrollments = await Enrollment.find({
+            "$or": [
+                {"student_id": str(user_id)},
+                {"student_id": user_poid}
+            ]
+        }).to_list()
         for e in enrollments:
             try:
-                course_ids.append(PydanticObjectId(e.course_id))
+                eid = PydanticObjectId(e.course_id) if isinstance(e.course_id, str) else e.course_id
+                if eid not in course_ids:
+                    course_ids.append(eid)
             except Exception:
                 pass
 
-    all_events = []
+        # 3. Courses they are enrolled in (via Course.enrolled_students list)
+        courses_enrolled = await Course.find({
+            "$or": [
+                {"enrolled_students.id": current_user.id},
+                {"enrolled_students.$id": current_user.id},
+                {"enrolled_students.id": user_id}
+            ]
+        }).to_list()
+        for c in courses_enrolled:
+            if c.id not in course_ids:
+                course_ids.append(c.id)
+    
     if not course_ids:
-        return []
+        # Final fallback: if no courses found, we still want to see events created by this user
+        print(f"DEBUG: No courses found for {current_user.email} ({user_id})")
+        # We will proceed but ONLY return creator events if any
 
-    # 2. Fetch custom events
+    all_events = []
+
+    # 1. Fetch custom events
+    print(f"DEBUG: Fetching calendar events for {len(course_ids)} courses and creator_id: {user_id}")
+    
+    # Try multiple query styles to be absolutely certain
+    # Added: Search by creator_id OR course_ids to ensure user's own events always show up
     custom_events = await CalendarEvent.find(
-        {"course.$id": {"$in": course_ids}}, fetch_links=True
+        {"$or": [
+            {"course.$id": {"$in": course_ids}},
+            {"course": {"$in": course_ids}},
+            {"course_id": {"$in": [str(cid) for cid in course_ids]}},
+            {"creator_id": str(user_id)}
+        ]}, 
+        fetch_links=True
     ).to_list()
     
+    if not custom_events:
+        print("DEBUG: Primary query returned nothing. Checking total events in DB for diagnostic...")
+        total = await CalendarEvent.count()
+        print(f"DEBUG: Total CalendarEvent count in system: {total}")
+    
+    print(f"DEBUG: Found {len(custom_events)} custom events")
     for ce in custom_events:
+        print(f"DEBUG: Event: {ce.title} for course: {ce.course.id if hasattr(ce.course, 'id') else ce.course}")
         all_events.append(CalendarResponse(
             id=str(ce.id),
             title=ce.title,
@@ -81,8 +133,14 @@ async def get_calendar(user_id: str):
         ))
 
     # 3. Fetch Assignment deadlines
+    print(f"DEBUG: Fetching assignments for {len(course_ids)} courses")
     assignments = await Assignment.find(
-        {"course.$id": {"$in": course_ids}}, fetch_links=True
+        {"$or": [
+            {"course.$id": {"$in": course_ids}},
+            {"course": {"$in": course_ids}},
+            {"course_id": {"$in": [str(cid) for cid in course_ids]}}
+        ]}, 
+        fetch_links=True
     ).to_list()
 
     for ass in assignments:
@@ -108,8 +166,10 @@ async def create_event(req: EventCreateRequest, creator_id: str):
         raise HTTPException(status_code=400, detail="Invalid creator_id format")
 
     current_user = await User.get(creator_poid)
-    if not current_user or current_user.role != UserRole.TEACHER:
-        raise HTTPException(status_code=403, detail="Only teachers can create calendar events")
+    # A bit more permissive: allow teachers, admins, or general staff roles
+    allowed_roles = [UserRole.TEACHER, UserRole.ADMIN, UserRole.USER]
+    if not current_user or current_user.role not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Not authorized to create events")
     
     course = await Course.get(PydanticObjectId(req.course_id))
     if not course:

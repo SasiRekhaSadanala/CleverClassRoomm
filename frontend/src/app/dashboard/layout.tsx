@@ -36,7 +36,7 @@ export default function DashboardLayout({
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden font-[family-name:var(--font-geist-sans)]">
       <Sidebar role={role as any} />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {children}
       </div>
     </div>

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import TopNav from "@/components/layout/TopNav";
+import { getAuthUser } from "@/lib/auth";
 import { 
   CalendarDays, 
   ChevronLeft, 
@@ -66,20 +67,21 @@ export default function GlobalCalendar() {
 
   useEffect(() => {
     fetchData();
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      const user = JSON.parse(storedUser);
-      setUserRole(user.role);
+    const auth = getAuthUser();
+    if (auth) {
+      setUserRole(auth.role);
     }
   }, []);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const storedUser = localStorage.getItem("user");
-      if (!storedUser) return;
-      const user = JSON.parse(storedUser);
-      const userId = user.id || user._id;
+      const auth = getAuthUser();
+      if (!auth) {
+        setLoading(false);
+        return;
+      }
+      const userId = auth.id;
 
       const token = localStorage.getItem("token");
       const config = { headers: { Authorization: `Bearer ${token}` } };
@@ -150,10 +152,10 @@ export default function GlobalCalendar() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className="text-3xl font-black text-gray-900 tracking-tight">
-            Classroom Calendar
+            Academic Schedule
           </h2>
           <p className="text-gray-500 font-medium">
-            Global view across all your enrolled courses
+            Aggregated view across all your classrooms (Read-only)
           </p>
         </div>
         <div className="flex items-center space-x-4 bg-white p-2 rounded-2xl shadow-sm border border-gray-100">
@@ -204,7 +206,8 @@ export default function GlobalCalendar() {
     return (
       <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
         {calendarInterval.map((day, idx) => {
-          const dayEvents = events.filter(e => isSameDay(parseISO(e.date), day));
+          const dayStr = format(day, "yyyy-MM-dd");
+          const dayEvents = events.filter(e => e.date.startsWith(dayStr));
           const isSelected = isSameDay(day, selectedDate);
           const isCurrentMonth = isSameMonth(day, monthStart);
           const isToday = isSameDay(day, new Date());
@@ -244,19 +247,6 @@ export default function GlobalCalendar() {
                 )}
               </div>
 
-              {/* Action for Teacher on hover */}
-              {userRole === "teacher" && isCurrentMonth && (
-                <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedDate(day);
-                    setIsModalOpen(true);
-                  }}
-                  className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 p-1 bg-blue-100 text-blue-600 rounded-lg transition-all hover:bg-blue-600 hover:text-white"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              )}
             </div>
           );
         })}
@@ -265,7 +255,8 @@ export default function GlobalCalendar() {
   };
 
   const renderTodayEvents = () => {
-    const selectedEvents = events.filter(e => isSameDay(parseISO(e.date), selectedDate));
+    const dayStr = format(selectedDate, "yyyy-MM-dd");
+    const selectedEvents = events.filter(e => e.date.startsWith(dayStr));
     
     return (
       <div className="mt-8 bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
@@ -274,15 +265,6 @@ export default function GlobalCalendar() {
             <Clock className="w-6 h-6 mr-3 text-blue-600" />
             Events for {format(selectedDate, "MMMM do")}
           </h3>
-          {userRole === "teacher" && (
-            <button 
-              onClick={() => setIsModalOpen(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-xl font-bold flex items-center hover:bg-blue-700 transition-all text-sm shadow-md shadow-blue-100"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Event
-            </button>
-          )}
         </div>
 
         {selectedEvents.length === 0 ? (
@@ -311,15 +293,7 @@ export default function GlobalCalendar() {
                 <div className="flex-1">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
-                      {event.course_name}
-                    </span>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                      event.type === 'exam' ? 'bg-red-100 text-red-700' :
-                      event.type === 'assignment_deadline' ? 'bg-orange-100 text-orange-700' :
-                      event.type === 'holiday' ? 'bg-green-100 text-green-700' :
-                      'bg-blue-100 text-blue-700'
-                    }`}>
-                      {event.type.replace('_', ' ')}
+                      {event.type.replace('_', ' ')} • {event.course_name}
                     </span>
                   </div>
                   <h4 className="font-bold text-gray-900 group-hover:text-blue-600 transition-colors uppercase tracking-tight">
@@ -340,9 +314,9 @@ export default function GlobalCalendar() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 w-full pb-10">
+    <div className="min-h-screen bg-gray-50 flex flex-col w-full pb-20">
       <TopNav title="" />
-      <main className="flex-1 px-8 lg:px-12 py-10 max-w-7xl mx-auto w-full">
+      <main className="flex-1 px-4 md:px-8 lg:px-12 py-10 max-w-7xl mx-auto w-full">
         <AnimatePresence>
           {loading ? (
             <motion.div 
@@ -368,100 +342,6 @@ export default function GlobalCalendar() {
         </AnimatePresence>
       </main>
 
-      {/* Add Event Modal */}
-      <AnimatePresence>
-        {isModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm"
-              onClick={() => setIsModalOpen(false)}
-            />
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="relative bg-white w-full max-w-lg rounded-[2rem] shadow-2xl p-10 overflow-hidden"
-            >
-              <button 
-                onClick={() => setIsModalOpen(false)}
-                className="absolute top-6 right-6 p-2 text-gray-400 hover:bg-gray-100 rounded-full transition-all"
-              >
-                <X className="w-5 h-5" />
-              </button>
-              
-              <h3 className="text-2xl font-black text-gray-900 tracking-tight mb-2">Create Calendar Event</h3>
-              <p className="text-gray-500 font-medium mb-8">
-                Adding event for {format(selectedDate, "MMMM do, yyyy")}
-              </p>
-
-              <form onSubmit={handleAddEvent} className="space-y-6">
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Select Course</label>
-                  <select 
-                    value={newCourseId}
-                    onChange={(e) => setNewCourseId(e.target.value)}
-                    className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 font-bold focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-gray-400"
-                    required
-                  >
-                    <option value="">Choose Course...</option>
-                    {courses.map(c => (
-                      <option key={c.id} value={c.id}>{c.title}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Event Title</label>
-                  <input 
-                    type="text"
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                    placeholder="e.g. End Semester Examination"
-                    className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 font-bold focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-gray-400 uppercase tracking-tight"
-                    required
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Event Type</label>
-                    <select 
-                      value={newType}
-                      onChange={(e) => setNewType(e.target.value)}
-                      className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 font-bold focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                    >
-                      <option value="general">General</option>
-                      <option value="exam">Examination</option>
-                      <option value="submission">Submission</option>
-                      <option value="holiday">Holiday</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Description (Optional)</label>
-                  <textarea 
-                    value={newDesc}
-                    onChange={(e) => setNewDesc(e.target.value)}
-                    rows={3}
-                    className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 font-bold focus:ring-2 focus:ring-blue-500 outline-none transition-all placeholder:text-gray-400"
-                  />
-                </div>
-
-                <button 
-                  disabled={isSubmitting}
-                  className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-lg tracking-tight uppercase hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 disabled:opacity-50"
-                >
-                  {isSubmitting ? "Creating..." : "Confirm Event"}
-                </button>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

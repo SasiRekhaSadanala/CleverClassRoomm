@@ -80,6 +80,11 @@ export default function Sidebar({
       icon: BarChart,
     },
     {
+      name: "Calendar",
+      href: `/dashboard/courses/${currCourseId}/calendar`,
+      icon: CalendarDays,
+    },
+    {
       name: "Evaluator",
       href: `/dashboard/courses/${currCourseId}/evaluator`,
       isTeacherOnly: true,
