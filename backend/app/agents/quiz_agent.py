@@ -13,19 +13,10 @@ quiz_prompt = PromptTemplate.from_template(
     """
 You are an expert educational quiz generator.
 
-**Class Context (Topics & Materials uploaded by the teacher):**
-{class_context}
-
-**CRITICAL GATEKEEPING RULE:**
-First, check if the requested "Topic" below is related to or covered by ANY of the topics/materials listed in the Class Context above.
-- If the topic IS related to the class context, proceed to generate the quiz questions.
-- If the topic is NOT related to ANY topic in the class context, return ONLY this exact JSON (no other text):
-{{"error": "This topic is not covered in the course notes provided by your teacher. Please choose a topic from your class materials."}}
-
-Topic: {topic}
+Generate exactly {num_questions} high-quality multiple-choice questions about the following topic for university-level students.
 Difficulty: {difficulty}
 
-Generate exactly {num_questions} high-quality multiple-choice questions about the above topic for university-level students.
+Topic: {topic}
 
 Return ONLY a valid JSON array (no markdown, no extra text) in this exact format:
 [
@@ -56,9 +47,6 @@ Rules:
 quiz_retry_prompt = PromptTemplate.from_template(
     """
 You are fixing a low-quality quiz draft.
-
-**Class Context (Topics & Materials uploaded by the teacher):**
-{class_context}
 
 Topic: {topic}
 Requested Count: {num_questions}
@@ -166,44 +154,33 @@ def _validate_and_repair_questions(questions: Any, expected_count: int) -> tuple
     return normalized[:expected_count], issues
 
 
-async def _invoke_quiz_llm(prompt: PromptTemplate, topic: str, num_questions: int, difficulty: str, class_context: str = "", issues: str = "") -> list[dict[str, Any]]:
+async def _invoke_quiz_llm(prompt: PromptTemplate, topic: str, num_questions: int, difficulty: str, issues: str = "") -> list[dict[str, Any]]:
     api_key = os.getenv("GOOGLE_API_KEY", "").strip()
     if not api_key:
         print("Quiz Agent Warning: No GOOGLE_API_KEY resolved at runtime.")
     
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         temperature=0.25,
         google_api_key=api_key,
     )
     chain = prompt | llm | StrOutputParser()
-    payload = {"topic": topic, "num_questions": num_questions, "difficulty": difficulty, "class_context": class_context}
+    payload = {"topic": topic, "num_questions": num_questions, "difficulty": difficulty}
     if issues:
         payload["issues"] = issues
     result = await chain.ainvoke(payload)
     cleaned = _clean_llm_json(result)
     parsed = json.loads(cleaned)
-
-    # Check if the AI returned an error (off-topic rejection)
-    if isinstance(parsed, dict) and "error" in parsed:
-        raise TopicNotInNotesError(parsed["error"])
-
     normalized, found_issues = _validate_and_repair_questions(parsed, num_questions)
     if found_issues:
         raise ValueError("; ".join(found_issues))
     return normalized
 
 
-class TopicNotInNotesError(Exception):
-    """Raised when the requested quiz topic is not covered in the course notes."""
-    pass
-
-
-async def generate_quiz_questions(topic: str, num_questions: int = 5, difficulty: str = "medium", class_context: str = "") -> list[dict]:
+async def generate_quiz_questions(topic: str, num_questions: int = 5, difficulty: str = "medium") -> list[dict]:
     """
     AI Quiz Generator Agent.
     Calls Gemini to produce MCQs for the given topic, count, and difficulty.
-    Validates the topic against class_context before generating.
     Falls back to hardcoded mock questions if no API key is set.
     """
     api_key = os.getenv("GOOGLE_API_KEY", "").strip()
@@ -212,17 +189,12 @@ async def generate_quiz_questions(topic: str, num_questions: int = 5, difficulty
         return _mock_questions(topic, num_questions)
 
     try:
-        return await _invoke_quiz_llm(quiz_prompt, topic, num_questions, difficulty, class_context=class_context)
-
-    except TopicNotInNotesError:
-        raise  # Let the API layer handle this with a 400 response
+        return await _invoke_quiz_llm(quiz_prompt, topic, num_questions, difficulty)
 
     except Exception as e:
         print(f"[QuizAgent] Primary quiz generation failed: {e}. Retrying with repair prompt.")
         try:
-            return await _invoke_quiz_llm(quiz_retry_prompt, topic, num_questions, difficulty, class_context=class_context, issues=str(e))
-        except TopicNotInNotesError:
-            raise
+            return await _invoke_quiz_llm(quiz_retry_prompt, topic, num_questions, difficulty, issues=str(e))
         except Exception as retry_err:
             print(f"[QuizAgent] Retry failed: {retry_err}. Using topic-aware fallback.")
             return _mock_questions(topic, num_questions)

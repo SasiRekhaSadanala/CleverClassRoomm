@@ -15,6 +15,8 @@ import {
   ChevronLeft,
   ChevronRight,
   PlusCircle,
+  Trash2,
+  Eye,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { getAuthUser } from "@/lib/auth";
@@ -24,6 +26,7 @@ const STORAGE_KEY = "asc_student_id";
 interface QuizItem {
   _id: string;
   title: string;
+  creator_id?: string | null;
   questions: {
     text: string;
     options: string[];
@@ -253,6 +256,42 @@ export default function StudentQuizzes() {
     setView("list");
     setActiveQuiz(null);
     setResultData(null);
+  };
+
+  // --- Review a completed quiz ---
+  const reviewQuiz = async (quiz: QuizItem) => {
+    if (!studentId) return;
+    try {
+      const res = await api.get(`/quizzes/${quiz._id}/review/${studentId}`);
+      setActiveQuiz(quiz);
+      setResultData(res.data);
+      setShowReview(true);
+      setView("result");
+    } catch (e) {
+      console.error("Review quiz error", e);
+      setStatus("Could not load quiz review. Please try again.");
+    }
+  };
+
+  // --- Delete a practice quiz ---
+  const deleteQuiz = async (quizId: string) => {
+    const authUser = getAuthUser();
+    const uid = authUser?.id || studentId;
+    if (!uid) return;
+    try {
+      await api.delete(`/quizzes/${quizId}`, {
+        params: { user_id: uid },
+      });
+      setQuizzes((prev) => prev.filter((q) => q._id !== quizId));
+      setCompletedQuizIds((prev) => {
+        const copy = { ...prev };
+        delete copy[quizId];
+        return copy;
+      });
+    } catch (e: any) {
+      console.error("Delete quiz error", e);
+      setStatus(e?.response?.data?.detail || "Failed to delete quiz.");
+    }
   };
 
   // --- Render ---
@@ -658,6 +697,7 @@ export default function StudentQuizzes() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {quizzes.map((quiz, idx) => {
               const completed = completedQuizIds[quiz._id];
+              const isPractice = !!quiz.creator_id;
               return (
                 <motion.div
                   key={quiz._id}
@@ -671,15 +711,22 @@ export default function StudentQuizzes() {
                     <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
                       <ClipboardList className="w-5 h-5" />
                     </div>
-                    {completed ? (
-                      <span className="text-xs font-bold px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full">
-                        Score: {completed.score}/{completed.total}
-                      </span>
-                    ) : (
-                      <span className="text-xs font-bold px-2.5 py-1 bg-blue-50 text-blue-600 rounded-full">
-                        New
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {isPractice && (
+                        <span className="text-xs font-bold px-2 py-0.5 bg-purple-50 text-purple-600 rounded-full">
+                          Practice
+                        </span>
+                      )}
+                      {completed ? (
+                        <span className="text-xs font-bold px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full">
+                          Score: {completed.score}/{completed.total}
+                        </span>
+                      ) : (
+                        <span className="text-xs font-bold px-2.5 py-1 bg-blue-50 text-blue-600 rounded-full">
+                          New
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <h3 className="font-bold text-gray-900 text-lg mb-1">
@@ -689,14 +736,23 @@ export default function StudentQuizzes() {
                     {quiz.questions.length} questions
                   </p>
 
-                    <div className="mt-auto">
+                  <div className="mt-auto space-y-2">
+                    {/* Main action button */}
                     <button
-                      onClick={() => (isTeacher ? startQuiz(quiz) : !completed && startQuiz(quiz))}
+                      onClick={() => {
+                        if (isTeacher) {
+                          startQuiz(quiz);
+                        } else if (completed) {
+                          reviewQuiz(quiz);
+                        } else {
+                          startQuiz(quiz);
+                        }
+                      }}
                       className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold transition-all ${
                         isTeacher
                           ? "bg-slate-900 text-white hover:bg-slate-800"
                           : completed
-                            ? "bg-emerald-50 text-emerald-600 cursor-not-allowed border border-emerald-100"
+                            ? "bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200"
                             : "bg-blue-600 text-white hover:bg-blue-700 shadow-sm"
                       }`}
                     >
@@ -706,7 +762,7 @@ export default function StudentQuizzes() {
                         </>
                       ) : completed ? (
                         <>
-                          <CheckCircle2 className="w-4 h-4" /> Completed
+                          <Eye className="w-4 h-4" /> Review Answers
                         </>
                       ) : (
                         <>
@@ -714,6 +770,16 @@ export default function StudentQuizzes() {
                         </>
                       )}
                     </button>
+
+                    {/* Delete button for practice quizzes */}
+                    {isPractice && (
+                      <button
+                        onClick={() => deleteQuiz(quiz._id)}
+                        className="w-full flex items-center justify-center gap-2 py-2 rounded-xl font-semibold text-sm text-rose-500 hover:bg-rose-50 border border-rose-100 transition-all"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Delete Quiz
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               );

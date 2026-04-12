@@ -1,11 +1,9 @@
-import json
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import List, Optional
 from app.models.quiz import Quiz, Question, QuizResult
-from app.models.course import Course, Topic
 from beanie import PydanticObjectId
-from app.agents.quiz_agent import generate_quiz_questions, TopicNotInNotesError
+from app.agents.quiz_agent import generate_quiz_questions
 from app.agents.analytics import update_knowledge_profile
 
 router = APIRouter()
@@ -64,33 +62,13 @@ async def create_quiz(quiz_data: QuizCreate):
 async def ai_generate_quiz(payload: AIQuizGenerate):
     """
     Calls the Quiz Agent (Gemini or mock) to generate MCQ questions
-    for the provided topic. Validates the topic against class notes first.
+    for the provided topic and saves the resulting Quiz to MongoDB.
     """
-    # Build class context from course topics/materials
-    class_context = ""
-    try:
-        topics = await Topic.find(Topic.course_id == str(payload.course_id)).to_list()
-        topic_payload = []
-        for t in topics[:10]:
-            materials = [{"title": m.title, "type": m.type} for m in (t.materials or [])[:5]]
-            topic_payload.append({
-                "title": t.title,
-                "description": t.description,
-                "materials": materials,
-            })
-        class_context = json.dumps({"topics": topic_payload}, ensure_ascii=True)[:4000]
-    except Exception as e:
-        print(f"[QuizAPI] Failed to build class context: {e}")
-
-    try:
-        raw_questions = await generate_quiz_questions(
-            payload.topic,
-            num_questions=payload.num_questions,
-            difficulty=payload.difficulty,
-            class_context=class_context,
-        )
-    except TopicNotInNotesError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    raw_questions = await generate_quiz_questions(
+        payload.topic,
+        num_questions=payload.num_questions,
+        difficulty=payload.difficulty,
+    )
 
     questions = [
         Question(
@@ -244,3 +222,62 @@ async def submit_quiz(quiz_id: PydanticObjectId, submission: QuizSubmit):
 async def get_student_results(student_id: str):
     results = await QuizResult.find(QuizResult.student_id == student_id).to_list()
     return results
+
+
+# ─── Review a completed quiz (get full answer breakdown) ────────────────────
+@router.get("/{quiz_id}/review/{student_id}")
+async def review_quiz(quiz_id: PydanticObjectId, student_id: str):
+    quiz = await Quiz.get(quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+
+    result = await QuizResult.find_one(
+        QuizResult.quiz_id == str(quiz_id),
+        QuizResult.student_id == student_id,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="No submission found for this quiz")
+
+    review = [
+        {
+            "question": q.text,
+            "your_answer": result.answers[i] if i < len(result.answers) else -1,
+            "correct_answer": q.correct_option_index,
+            "options": q.options,
+            "explanation": q.explanation,
+            "correct": (
+                i < len(result.answers)
+                and result.answers[i] == q.correct_option_index
+            ),
+        }
+        for i, q in enumerate(quiz.questions)
+    ]
+
+    return {
+        "quiz_id": str(quiz.id),
+        "title": quiz.title,
+        "score": result.score,
+        "total": result.total,
+        "percentage": round(result.score / result.total * 100, 1) if result.total > 0 else 0,
+        "review": review,
+    }
+
+
+# ─── Delete a quiz (only creator can delete their practice quizzes) ────────
+@router.delete("/{quiz_id}")
+async def delete_quiz(quiz_id: PydanticObjectId, user_id: Optional[str] = Query(None)):
+    quiz = await Quiz.get(quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+
+    # Only allow deletion if the user is the creator of a practice quiz
+    if quiz.creator_id is None:
+        raise HTTPException(status_code=403, detail="Cannot delete official course quizzes")
+    if not user_id or quiz.creator_id != user_id:
+        raise HTTPException(status_code=403, detail="You can only delete your own practice quizzes")
+
+    # Also delete associated results
+    await QuizResult.find(QuizResult.quiz_id == str(quiz_id)).delete()
+    await quiz.delete()
+
+    return {"message": "Quiz deleted successfully"}

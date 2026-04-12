@@ -27,13 +27,20 @@ class StudentChatRequest(BaseModel):
 
 async def _resolve_course_for_student(student_id: str, course_id: Optional[str]) -> Optional[str]:
     if course_id:
+        # First check enrollment (for students)
         enrollment = await Enrollment.find_one(
             Enrollment.student_id == student_id,
             Enrollment.course_id == str(course_id),
         )
-        if not enrollment:
-            raise HTTPException(status_code=403, detail="Student is not enrolled in this course")
-        return str(course_id)
+        if enrollment:
+            return str(course_id)
+
+        # If not enrolled, check if the user is the teacher of this course
+        course = await Course.get(PydanticObjectId(course_id))
+        if course and str(course.teacher.ref.id) == student_id:
+            return str(course_id)
+
+        raise HTTPException(status_code=403, detail="Student is not enrolled in this course")
 
     enrollments = await Enrollment.find(Enrollment.student_id == student_id).to_list()
     if not enrollments:

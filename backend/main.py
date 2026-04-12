@@ -89,3 +89,6 @@ async def serve_upload(file_path: str):
 @app.get("/")
 async def root():
     return {"message": "Welcome to CleverClassRoom API"}
+
+# Triggering reload
+

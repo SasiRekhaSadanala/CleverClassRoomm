@@ -13,9 +13,9 @@ _KEY_COOLDOWN_UNTIL: dict[str, float] = {}
 
 chat_prompt = PromptTemplate.from_template(
     """
-You are a strictly course-aligned academic tutor. You ONLY answer questions that are directly related to the topics and materials provided in the Class Context below. You must NOT answer questions outside of this scope.
+You are a world-class academic tutor and mentor. Your goal is to provide clear, high-quality, and deeply educational explanations for any query from a student or teacher.
 
-Class Context (Topics & Materials uploaded by the teacher):
+Class Context (Topics & Materials):
 {class_context}
 
 Student Mastery Snapshot:
@@ -27,19 +27,14 @@ Conversation History:
 Current Query:
 {question}
 
-**CRITICAL GATEKEEPING RULE:**
-First, determine if the student's query is related to ANY topic or material listed in the Class Context above.
-- If the query IS related to the class context, provide a thorough, high-quality answer following the Output Structure below.
-- If the query is NOT related to ANY topic in the class context, respond with ONLY this message (no other text):
-"I'm sorry, but this topic is not covered in the course notes provided by your teacher. Please ask a question related to your class materials."
+Instructions:
+1. Provide a direct, thorough answer to the query using your broad internal knowledge.
+2. If the 'Class Context' above contains relevant topics or materials, weave them naturally into your explanation to make it course-aligned.
+3. Use a supportive, encouraging, and sophisticated teaching tone.
+4. For technical or problem-solving questions, break the explanation into intuitive steps.
+5. Use Markdown formatting (headers, bold text, code blocks) to make the response visually organized and easy to read.
 
-Instructions (only if the query IS relevant):
-1. Provide a direct, thorough answer using the course context and your knowledge of that specific topic.
-2. Use a supportive, encouraging, and sophisticated teaching tone.
-3. For technical or problem-solving questions, break the explanation into intuitive steps.
-4. Use Markdown formatting (headers, bold text, code blocks) to make the response visually organized and easy to read.
-
-Output Structure (only if the query IS relevant):
+Output Structure:
 ## Quick Answer
 The direct answer to the question.
 
@@ -58,12 +53,17 @@ A related higher-level concept or a practical tip to help the learner master thi
 def _candidate_keys() -> List[str]:
     keys: List[str] = []
     
-    # Evaluate at runtime so load_dotenv() from main.py is already active
-    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    # Dedicated chatbot API key (separate quota from quiz generation)
+    chatbot_key = os.getenv("CHATBOT_API_KEY", "").strip()
+    if chatbot_key:
+        keys.append(chatbot_key)
+    
+    # Fallback to general keys
     api_keys = os.getenv("GOOGLE_API_KEYS", "").strip()
+    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
     
     if api_keys:
-        keys.extend([k.strip() for k in api_keys.split(",") if k.strip()])
+        keys.extend([k.strip() for k in api_keys.split(",") if k.strip() and k.strip() not in keys])
     if api_key and api_key not in keys:
         keys.append(api_key)
     return keys
@@ -179,7 +179,7 @@ async def generate_personalized_student_answer(
     for key in keys:
         try:
             llm = ChatGoogleGenerativeAI(
-                model="gemini-2.0-flash",
+                model="gemini-2.5-flash",
                 temperature=0.7,
                 max_output_tokens=1000,
                 max_retries=1,

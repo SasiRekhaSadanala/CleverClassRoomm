@@ -93,7 +93,7 @@ export default function CourseTutor() {
                 <BrainCircuit className="w-6 h-6" />
             </div>
             <div>
-               <h2 className="text-2xl font-black text-gray-900 tracking-tight">Semantic Learning Tutor</h2>
+               <h2 className="text-2xl font-black text-gray-900 tracking-tight">Class Tutor</h2>
                <p className="text-sm font-medium text-gray-500">Ask questions based on your course's materials.</p>
             </div>
         </div>
