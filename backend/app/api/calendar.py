@@ -85,7 +85,10 @@ async def get_calendar(user_id: str, course_id: Optional[str] = None):
             "$or": [
                 {"enrolled_students.id": current_user.id},
                 {"enrolled_students.$id": current_user.id},
-                {"enrolled_students.id": user_id}
+                {"enrolled_students.id": user_id},
+                # List-based link query fallback
+                {"enrolled_students": {"$elemMatch": {"$id": current_user.id}}},
+                {"enrolled_students": current_user.id}
             ]
         }).to_list()
         for c in courses_enrolled:
@@ -93,9 +96,7 @@ async def get_calendar(user_id: str, course_id: Optional[str] = None):
                 course_ids.append(c.id)
     
     if not course_ids:
-        # Final fallback: if no courses found, we still want to see events created by this user
         print(f"DEBUG: No courses found for {current_user.email} ({user_id})")
-        # We will proceed but ONLY return creator events if any
 
     all_events = []
 
@@ -104,11 +105,16 @@ async def get_calendar(user_id: str, course_id: Optional[str] = None):
     
     # Try multiple query styles to be absolutely certain
     # Added: Search by creator_id OR course_ids to ensure user's own events always show up
+    # Standardize IDs to match potential string/ObjectId mismatches
+    course_id_strs = [str(cid) for cid in course_ids]
+    
     custom_events = await CalendarEvent.find(
         {"$or": [
             {"course.$id": {"$in": course_ids}},
             {"course": {"$in": course_ids}},
-            {"course_id": {"$in": [str(cid) for cid in course_ids]}},
+            {"course.id": {"$in": course_ids}},
+            {"course.$id": {"$in": course_id_strs}},
+            {"course_id": {"$in": course_id_strs}},
             {"creator_id": str(user_id)}
         ]}, 
         fetch_links=True
