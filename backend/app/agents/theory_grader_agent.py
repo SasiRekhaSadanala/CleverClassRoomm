@@ -1,20 +1,21 @@
 import os
 import json
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+import google.generativeai as genai
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
-grader_prompt = PromptTemplate.from_template(
-    """
+async def grade_theory_submission(description: str, text: str) -> dict:
+    if not GOOGLE_API_KEY:
+        return {"score": 50, "feedback": "AI Not Configured."}
+
+    prompt = f"""
 You are an expert AI teaching assistant grading a student's theory assignment.
 You must use a WEIGHTED SCORING MODEL to evaluate the submission.
 
-Assignment Prompt: {assignment_description}
+Assignment Prompt: {description}
 Student's Essay/Response:
 ---
-{student_text}
+{text}
 ---
 
 Your task is to evaluate the response based on these THREE categories:
@@ -39,29 +40,21 @@ Return ONLY a valid JSON object in this format:
   "concepts_identified": ["topic1", "topic2"]
 }}
 """
-)
-
-async def grade_theory_submission(description: str, text: str) -> dict:
-    if not GOOGLE_API_KEY:
-        return {"score": 50, "feedback": "AI Not Configured."}
 
     try:
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
-            temperature=0.2,
-            google_api_key=GOOGLE_API_KEY,
-        )
-        chain = grader_prompt | llm | StrOutputParser()
-        result = await chain.ainvoke({"assignment_description": description, "student_text": text})
+        genai.configure(api_key=GOOGLE_API_KEY)
+        model = genai.GenerativeModel(model_name='gemini-flash-latest')
+        
+        response = await model.generate_content_async(prompt)
+        result_text = response.text.strip()
 
-        result = result.strip()
-        if "```json" in result:
-            result = result.split("```json")[1].split("```")[0]
-        elif "```" in result:
-            result = result.split("```")[1].split("```")[0]
-        result = result.strip()
+        if "```json" in result_text:
+            result_text = result_text.split("```json")[1].split("```")[0]
+        elif "```" in result_text:
+            result_text = result_text.split("```")[1].split("```")[0]
+        result_text = result_text.strip()
 
-        parsed = json.loads(result)
+        parsed = json.loads(result_text)
         
         # Add explicit breakdown to feedback
         if "breakdown" in parsed:
@@ -69,10 +62,13 @@ async def grade_theory_submission(description: str, text: str) -> dict:
             breakdown_text = f"\n\n--- Evaluation Breakdown ---\n• Accuracy: {b.get('accuracy')}/100\n• Coverage: {b.get('coverage')}/100\n• Writing Quality: {b.get('quality')}/100"
             parsed["feedback"] += breakdown_text
             
+        print(f"SUCCESS: Native Theory Grader generated score {parsed.get('score')}")
         return parsed
 
     except Exception as e:
-        print(f"Theory Grader Weighted call failed: {e}")
+        import traceback
+        traceback.print_exc()
+        print(f"Theory Grader Native call failed: {e}")
         return {
             "score": 75.0,
             "feedback": "Error connecting to AI grader. Generic effort score assigned.",

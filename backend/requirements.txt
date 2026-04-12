@@ -11,4 +11,7 @@ passlib[bcrypt]
 pymongo<4.12
 langchain
 langchain-google-genai
+google-generativeai
+pymupdf
+python-pptx
 reportlab

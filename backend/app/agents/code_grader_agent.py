@@ -1,10 +1,8 @@
 import os
 import json
 import re
+import google.generativeai as genai
 from typing import Any
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
@@ -37,8 +35,6 @@ def _evaluate_with_test_cases(code: str, test_cases: list) -> dict | None:
         return None
 
     function_name = _extract_function_name(code)
-    # V2.1: We don't return 15 here anymore. If we can't find a function to run,
-    # we return None so the LLM can perform a weighted holistic evaluation instead.
     if not function_name:
         return None
 
@@ -74,18 +70,27 @@ def _evaluate_with_test_cases(code: str, test_cases: list) -> dict | None:
         "total": total
     }
 
-code_grader_prompt = PromptTemplate.from_template(
-    """
+async def grade_code_submission(description: str, code: str, test_cases: list) -> dict:
+    if not GOOGLE_API_KEY:
+        return {"score": 50, "feedback": "AI Not Configured. Defaulting to 50."}
+
+    # Optional: Run deterministic tests to help the AI
+    test_results = _evaluate_with_test_cases(code, test_cases)
+    results_str = ""
+    if test_results:
+        results_str = f"PRE-EVALUATION RESULTS: Code passed {test_results['passed']}/{test_results['total']} test cases."
+
+    prompt = f"""
 You are an expert AI software engineering instructor grading a student's coding assignment.
 You must use a WEIGHTED SCORING MODEL to ensure fairness.
 
-Assignment Task: {assignment_description}
+Assignment Task: {description}
 Student's Code:
 ---
-{student_code}
+{code}
 ---
-Test Cases/Requirements: {test_cases}
-{test_results_context}
+Test Cases/Requirements: {json.dumps(test_cases)}
+{results_str}
 
 Your task is to evaluate the code based on these FOUR categories:
 
@@ -113,39 +118,25 @@ Return ONLY a valid JSON object:
   "complexity": "e.g. O(N)"
 }}
 """
-)
-
-async def grade_code_submission(description: str, code: str, test_cases: list) -> dict:
-    if not GOOGLE_API_KEY:
-        return {"score": 50, "feedback": "AI Not Configured. Defaulting to 50."}
-
-    # Optional: Run deterministic tests to help the AI
-    test_results = _evaluate_with_test_cases(code, test_cases)
-    results_str = ""
-    if test_results:
-        results_str = f"PRE-EVALUATION RESULTS: Code passed {test_results['passed']}/{test_results['total']} test cases."
 
     try:
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
-            temperature=0.1,
-            google_api_key=GOOGLE_API_KEY,
+        genai.configure(api_key=GOOGLE_API_KEY)
+        # Using gemini-flash-latest which was verified to work on this API key
+        model = genai.GenerativeModel(
+            model_name='gemini-flash-latest',
         )
-        chain = code_grader_prompt | llm | StrOutputParser()
-        result = await chain.ainvoke({
-            "assignment_description": description, 
-            "student_code": code,
-            "test_cases": json.dumps(test_cases),
-            "test_results_context": results_str
-        })
-
-        result = result.strip()
-        if "```json" in result:
-            result = result.split("```json")[1].split("```")[0]
-        elif "```" in result:
-            result = result.split("```")[1].split("```")[0]
         
-        parsed = json.loads(result.strip())
+        # Call generate_content (async version)
+        response = await model.generate_content_async(prompt)
+        result_text = response.text.strip()
+
+        # Clean JSON if wrapped in markdown
+        if "```json" in result_text:
+            result_text = result_text.split("```json")[1].split("```")[0]
+        elif "```" in result_text:
+            result_text = result_text.split("```")[1].split("```")[0]
+        
+        parsed = json.loads(result_text.strip())
         
         # Ensure feedback includes the explicit breakdown
         if "breakdown" in parsed:
@@ -153,10 +144,13 @@ async def grade_code_submission(description: str, code: str, test_cases: list) -
             breakdown_text = f"\n\n--- Evaluation Breakdown ---\n• Approach: {b.get('approach')}/100\n• Readability: {b.get('readability')}/100\n• Structure: {b.get('structure')}/100\n• Effort: {b.get('effort')}/100"
             parsed["feedback"] += breakdown_text
             
+        print(f"SUCCESS: Native Code Grader generated score {parsed.get('score')}")
         return parsed
 
     except Exception as e:
-        print(f"Code Grader Weighted call failed: {e}")
+        import traceback
+        traceback.print_exc()
+        print(f"Code Grader Native call failed: {e}")
         return {
             "score": 60.0,
             "feedback": "AI grading failed due to connectivity issues. Generic effort score applied.",
