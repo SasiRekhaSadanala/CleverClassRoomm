@@ -18,7 +18,8 @@ import {
   LogOut,
   ArrowLeft,
   Bot,
-  ClipboardCheck
+  ClipboardCheck,
+  Sparkles
 } from "lucide-react";
 import { clearAuthUser } from "@/lib/auth";
 
@@ -78,6 +79,11 @@ export default function Sidebar({
       name: "Dashboard",
       href: `/dashboard/courses/${currCourseId}/progress`,
       icon: BarChart,
+    },
+    {
+      name: "Feature Analysis",
+      href: `/dashboard/courses/${currCourseId}/analysis`,
+      icon: Sparkles,
     },
     {
       name: "Calendar",

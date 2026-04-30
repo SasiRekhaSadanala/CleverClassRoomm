@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from . import auth, courses, assignments, quizzes, analytics, planner, chatbot, evaluator, calendar
+from . import auth, courses, assignments, quizzes, analytics, planner, chatbot, evaluator, calendar, analysis
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -11,4 +11,5 @@ api_router.include_router(planner.router, prefix="/planner", tags=["planner"])
 api_router.include_router(chatbot.router, prefix="/chatbot", tags=["chatbot"])
 api_router.include_router(evaluator.router, prefix="/evaluator", tags=["evaluator"])
 api_router.include_router(calendar.router, prefix="/calendar", tags=["calendar"])
+api_router.include_router(analysis.router, prefix="/analysis", tags=["analysis"])
 
