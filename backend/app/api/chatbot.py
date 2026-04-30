@@ -1,14 +1,22 @@
 import json
+import os
+import uuid
+from pathlib import Path
 from typing import Optional, List
 
 from beanie import PydanticObjectId
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
 
 from app.agents.student_chatbot_agent import generate_personalized_student_answer
 from app.models.course import Course, Topic
 from app.models.enrollment import Enrollment
 from app.models.user import User
+from app.utils.file_utils import extract_text_from_file
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+UPLOAD_DIR = BACKEND_DIR / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 router = APIRouter()
 
@@ -159,6 +167,76 @@ async def ask_student_chatbot(payload: StudentChatRequest):
             "mode": result.get("mode", "fallback"),
             "course_id": course_id,
             "sources": sources[:10],
+        }
+    except HTTPException as e:
+        raise e
+    except Exception as err:
+        import traceback
+        with open("backend_chatbot_error.log", "w") as f:
+            f.write(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(err))
+
+
+@router.post("/ask-with-file")
+async def ask_student_chatbot_with_file(
+    student_id: str = Form(...),
+    question: str = Form(...),
+    course_id: Optional[str] = Form(None),
+    history: str = Form("[]"),  # JSON stringified history
+    file: Optional[UploadFile] = File(None)
+):
+    try:
+        student_id = student_id.strip()
+        question = question.strip()
+        if not student_id or not question:
+            raise HTTPException(status_code=400, detail="student_id and question are required")
+
+        try:
+            PydanticObjectId(student_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid student_id")
+
+        # Parse history
+        try:
+            history_list = json.loads(history)
+            history_text = "\n".join([
+                f"{turn.get('role', 'user')}: {turn.get('content', '')}" 
+                for turn in history_list[-6:]
+            ])
+        except Exception:
+            history_text = "No prior turns"
+
+        resolved_course_id = await _resolve_course_for_student(student_id, course_id)
+        class_context, sources = await _build_class_context(resolved_course_id)
+        student_snapshot = await _build_student_snapshot(student_id)
+
+        document_text = ""
+        if file:
+            unique_filename = f"{uuid.uuid4()}_{file.filename}"
+            upload_path = UPLOAD_DIR / unique_filename
+            with open(upload_path, "wb") as buffer:
+                buffer.write(await file.read())
+            # Extract text
+            document_text = extract_text_from_file(str(upload_path))
+            
+            # Limit the size just in case it's huge
+            if len(document_text) > 15000:
+                document_text = document_text[:15000] + "... [Text truncated due to length]"
+
+        result = await generate_personalized_student_answer(
+            question=question,
+            student_snapshot=student_snapshot,
+            class_context=class_context,
+            history=history_text or "No prior turns",
+            document_text=document_text
+        )
+
+        return {
+            "answer": result["answer"],
+            "mode": result.get("mode", "fallback"),
+            "course_id": resolved_course_id,
+            "sources": sources[:10],
+            "extracted_text_length": len(document_text) if document_text else 0
         }
     except HTTPException as e:
         raise e

@@ -29,9 +29,22 @@ async def lifespan(app: FastAPI):
     await init_beanie(database=client[DATABASE_NAME], document_models=[
         User, Course, Topic, Assignment, Submission, Quiz, QuizResult, Enrollment, CalendarEvent
     ])
+    # Backfill course_id on existing CalendarEvents that don't have it
+    try:
+        legacy_events = await CalendarEvent.find(
+            {"$or": [{"course_id": ""}, {"course_id": {"$exists": False}}]},
+            fetch_links=True
+        ).to_list()
+        for ev in legacy_events:
+            if ev.course and hasattr(ev.course, 'id'):
+                ev.course_id = str(ev.course.id)
+                await ev.save()
+                print(f"Backfilled course_id for event: {ev.title}")
+    except Exception as e:
+        print(f"Warning: course_id backfill skipped: {e}")
     yield
     # Shutdown
-    client.close()
+    await client.close()
 
 app = FastAPI(title="CleverClassRoom API", lifespan=lifespan)
 

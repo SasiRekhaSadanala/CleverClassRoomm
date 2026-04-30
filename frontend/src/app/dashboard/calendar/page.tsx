@@ -7,13 +7,11 @@ import {
   CalendarDays, 
   ChevronLeft, 
   ChevronRight, 
-  Plus, 
   Clock, 
   BookOpen, 
   GraduationCap, 
-  MapPin, 
-  AlertCircle,
-  X
+  MapPin,
+  Eye
 } from "lucide-react";
 import { 
   format, 
@@ -25,7 +23,6 @@ import {
   endOfWeek, 
   isSameMonth, 
   isSameDay, 
-  addDays, 
   eachDayOfInterval,
   parseISO
 } from "date-fns";
@@ -44,33 +41,14 @@ interface CalendarEvent {
   course_id: string;
 }
 
-interface Course {
-  id: string;
-  title: string;
-}
-
 export default function GlobalCalendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [userRole, setUserRole] = useState<string | null>(null);
-
-  // Form state
-  const [newTitle, setNewTitle] = useState("");
-  const [newDesc, setNewDesc] = useState("");
-  const [newType, setNewType] = useState("general");
-  const [newCourseId, setNewCourseId] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     fetchData();
-    const auth = getAuthUser();
-    if (auth) {
-      setUserRole(auth.role);
-    }
   }, []);
 
   const fetchData = async () => {
@@ -82,25 +60,12 @@ export default function GlobalCalendar() {
         return;
       }
       const userId = auth.id;
-
       const token = localStorage.getItem("token");
       const config = { headers: { Authorization: `Bearer ${token}` } };
       
-      const [eventsRes, coursesRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/calendar/?user_id=${userId}`, config),
-        axios.get(`${API_BASE_URL}/courses/teacher/${userId}`, config).catch(() => 
-          axios.get(`${API_BASE_URL}/courses/student/${userId}`, config)
-        )
-      ]);
-      
+      // Fetch all events across all enrolled/taught courses (no course_id filter = global)
+      const eventsRes = await axios.get(`${API_BASE_URL}/calendar/?user_id=${userId}`, config);
       setEvents(eventsRes.data);
-      // For teachers, we only want courses they can add events to
-      if (user.role === 'teacher') {
-        const createdRes = await axios.get(`${API_BASE_URL}/courses/created-by/${userId}`, config);
-        setCourses(createdRes.data);
-      } else {
-        setCourses(coursesRes.data);
-      }
     } catch (error) {
       console.error("Error fetching calendar data:", error);
     } finally {
@@ -111,73 +76,66 @@ export default function GlobalCalendar() {
   const handlePrevMonth = () => setCurrentDate(subMonths(currentDate, 1));
   const handleNextMonth = () => setCurrentDate(addMonths(currentDate, 1));
 
-  const handleAddEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle || !newCourseId) return;
-
-    const storedUser = localStorage.getItem("user");
-    if (!storedUser) return;
-    const user = JSON.parse(storedUser);
-    const userId = user.id || user._id;
-
-    setIsSubmitting(true);
+  // Format a date string to compact display format like "26.04.26"
+  const compactDate = (dateStr: string) => {
     try {
-      const token = localStorage.getItem("token");
-      await axios.post(
-        `${API_BASE_URL}/calendar/?creator_id=${userId}`,
-        {
-          title: newTitle,
-          description: newDesc,
-          date: selectedDate.toISOString(),
-          event_type: newType,
-          course_id: newCourseId
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      setIsModalOpen(false);
-      setNewTitle("");
-      setNewDesc("");
-      fetchData();
-    } catch (error) {
-      console.error("Error creating event:", error);
-      alert("Failed to create event");
-    } finally {
-      setIsSubmitting(false);
+      const d = parseISO(dateStr);
+      return format(d, "dd.MM.yy");
+    } catch {
+      return dateStr;
     }
   };
 
-  const renderHeader = () => {
-    return (
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h2 className="text-3xl font-black text-gray-900 tracking-tight">
-            Academic Schedule
-          </h2>
+  const getEventIcon = (type: string) => {
+    switch (type) {
+      case 'exam': return <GraduationCap className="w-4 h-4" />;
+      case 'assignment_deadline': return <BookOpen className="w-4 h-4" />;
+      case 'holiday': return <MapPin className="w-4 h-4" />;
+      default: return <CalendarDays className="w-4 h-4" />;
+    }
+  };
+
+  const getEventColor = (type: string) => {
+    switch (type) {
+      case 'exam': return { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-500', icon: 'bg-red-100 text-red-600', dot: 'bg-red-500' };
+      case 'assignment_deadline': return { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-500', icon: 'bg-orange-100 text-orange-600', dot: 'bg-orange-500' };
+      case 'holiday': return { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-500', icon: 'bg-green-100 text-green-600', dot: 'bg-green-500' };
+      default: return { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-500', icon: 'bg-blue-100 text-blue-600', dot: 'bg-blue-500' };
+    }
+  };
+
+  const renderHeader = () => (
+    <div className="flex items-center justify-between mb-8">
+      <div>
+        <h2 className="text-3xl font-black text-gray-900 tracking-tight">
+          Academic Schedule
+        </h2>
+        <div className="flex items-center gap-2 mt-1">
+          <Eye className="w-4 h-4 text-gray-400" />
           <p className="text-gray-500 font-medium">
-            Aggregated view across all your classrooms (Read-only)
+            Read-only view of all your classroom events
           </p>
         </div>
-        <div className="flex items-center space-x-4 bg-white p-2 rounded-2xl shadow-sm border border-gray-100">
-          <button 
-            onClick={handlePrevMonth}
-            className="p-2 hover:bg-gray-50 rounded-xl transition-colors text-gray-600"
-          >
-            <ChevronLeft className="w-6 h-6" />
-          </button>
-          <div className="px-4 font-bold text-gray-800 min-w-[140px] text-center">
-            {format(currentDate, "MMMM yyyy")}
-          </div>
-          <button 
-            onClick={handleNextMonth}
-            className="p-2 hover:bg-gray-50 rounded-xl transition-colors text-gray-600"
-          >
-            <ChevronRight className="w-6 h-6" />
-          </button>
-        </div>
       </div>
-    );
-  };
+      <div className="flex items-center space-x-4 bg-white p-2 rounded-2xl shadow-sm border border-gray-100">
+        <button 
+          onClick={handlePrevMonth}
+          className="p-2 hover:bg-gray-50 rounded-xl transition-colors text-gray-600"
+        >
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+        <div className="px-4 font-bold text-gray-800 min-w-[140px] text-center">
+          {format(currentDate, "MMMM yyyy")}
+        </div>
+        <button 
+          onClick={handleNextMonth}
+          className="p-2 hover:bg-gray-50 rounded-xl transition-colors text-gray-600"
+        >
+          <ChevronRight className="w-6 h-6" />
+        </button>
+      </div>
+    </div>
+  );
 
   const renderDays = () => {
     const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -227,26 +185,23 @@ export default function GlobalCalendar() {
               </span>
 
               <div className="space-y-1">
-                {dayEvents.slice(0, 3).map((event, eIdx) => (
-                  <div 
-                    key={eIdx}
-                    className={`text-[10px] p-1 px-2 rounded-md truncate font-bold border-l-2 shadow-sm ${
-                      event.type === 'exam' ? 'bg-red-50 text-red-700 border-red-500' :
-                      event.type === 'assignment_deadline' ? 'bg-orange-50 text-orange-700 border-orange-500' :
-                      event.type === 'holiday' ? 'bg-green-50 text-green-700 border-green-500' :
-                      'bg-blue-50 text-blue-700 border-blue-500'
-                    }`}
-                  >
-                    {event.course_name}: {event.title}
-                  </div>
-                ))}
+                {dayEvents.slice(0, 3).map((event, eIdx) => {
+                  const colors = getEventColor(event.type);
+                  return (
+                    <div 
+                      key={eIdx}
+                      className={`text-[10px] p-1 px-2 rounded-md truncate font-bold border-l-2 shadow-sm ${colors.bg} ${colors.text} ${colors.border}`}
+                    >
+                      {event.course_name}: {event.title}
+                    </div>
+                  );
+                })}
                 {dayEvents.length > 3 && (
                   <div className="text-[9px] text-gray-400 font-bold pl-1">
                     + {dayEvents.length - 3} more
                   </div>
                 )}
               </div>
-
             </div>
           );
         })}
@@ -254,7 +209,7 @@ export default function GlobalCalendar() {
     );
   };
 
-  const renderTodayEvents = () => {
+  const renderSelectedDayEvents = () => {
     const dayStr = format(selectedDate, "yyyy-MM-dd");
     const selectedEvents = events.filter(e => e.date.startsWith(dayStr));
     
@@ -268,47 +223,113 @@ export default function GlobalCalendar() {
         </div>
 
         {selectedEvents.length === 0 ? (
-          <div className="py-12 text-center">
+          <div className="py-12 text-center border-2 border-dashed border-gray-100 rounded-2xl">
+            <CalendarDays className="w-10 h-10 text-gray-200 mx-auto mb-3" />
             <p className="text-gray-400 font-medium">No events scheduled for this day.</p>
           </div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {selectedEvents.map((event) => (
-              <motion.div 
-                key={event.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="p-5 rounded-2xl border border-gray-100 bg-gray-50/30 flex items-start space-x-4 group hover:border-blue-200 transition-all hover:shadow-md"
-              >
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
-                  event.type === 'exam' ? 'bg-red-100 text-red-600' :
-                  event.type === 'assignment_deadline' ? 'bg-orange-100 text-orange-600' :
-                  event.type === 'holiday' ? 'bg-green-100 text-green-600' :
-                  'bg-blue-100 text-blue-600'
-                }`}>
-                  {event.type === 'exam' ? <GraduationCap /> : 
-                   event.type === 'assignment_deadline' ? <BookOpen /> : 
-                   event.type === 'holiday' ? <MapPin /> : <CalendarDays />}
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">
-                      {event.type.replace('_', ' ')} • {event.course_name}
-                    </span>
+          <div className="space-y-3">
+            {selectedEvents.map((event) => {
+              const colors = getEventColor(event.type);
+              return (
+                <motion.div 
+                  key={event.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`flex items-center gap-4 p-4 rounded-2xl border border-gray-100 ${colors.bg} hover:shadow-md transition-all`}
+                >
+                  {/* Date badge */}
+                  <div className="text-center shrink-0 bg-white rounded-xl px-3 py-2 shadow-sm border border-gray-100">
+                    <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                      {format(parseISO(event.date), "MMM")}
+                    </div>
+                    <div className="text-lg font-black text-gray-900 leading-tight">
+                      {format(parseISO(event.date), "dd")}
+                    </div>
                   </div>
-                  <h4 className="font-bold text-gray-900 group-hover:text-blue-600 transition-colors uppercase tracking-tight">
-                    {event.title}
-                  </h4>
-                  {event.description && (
-                    <p className="text-sm text-gray-500 mt-1 line-clamp-2">
-                      {event.description}
-                    </p>
-                  )}
-                </div>
-              </motion.div>
-            ))}
+
+                  {/* Icon */}
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${colors.icon}`}>
+                    {getEventIcon(event.type)}
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${colors.text}`}>
+                        {event.course_name}
+                      </span>
+                      <span className="text-[10px] text-gray-300">•</span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                        {event.type.replace('_', ' ')}
+                      </span>
+                    </div>
+                    <h4 className={`font-bold text-gray-900 uppercase tracking-tight truncate`}>
+                      {event.title}
+                    </h4>
+                    {event.description && (
+                      <p className="text-sm text-gray-500 mt-0.5 line-clamp-1">
+                        {event.description}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Compact date label */}
+                  <div className="shrink-0 text-xs font-mono font-bold text-gray-400">
+                    {compactDate(event.date)}
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
         )}
+      </div>
+    );
+  };
+
+  // Upcoming events list (below calendar) — all future events across all classes
+  const renderUpcomingList = () => {
+    const today = new Date();
+    const todayStr = format(today, "yyyy-MM-dd");
+    const upcoming = events
+      .filter(e => e.date >= todayStr)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(0, 10);
+
+    if (upcoming.length === 0) return null;
+
+    return (
+      <div className="mt-8 bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+        <h3 className="text-xl font-black text-gray-900 flex items-center mb-6">
+          <CalendarDays className="w-6 h-6 mr-3 text-blue-600" />
+          Upcoming Events
+        </h3>
+        <div className="space-y-2">
+          {upcoming.map((event) => {
+            const colors = getEventColor(event.type);
+            return (
+              <div
+                key={event.id}
+                className="flex items-center gap-3 py-3 px-4 rounded-xl hover:bg-gray-50 transition-colors group"
+              >
+                <div className={`w-2 h-2 rounded-full shrink-0 ${colors.dot}`} />
+                <span className="text-sm font-mono font-bold text-gray-400 shrink-0 w-16">
+                  {compactDate(event.date)}
+                </span>
+                <span className="text-sm font-bold text-blue-600 shrink-0">
+                  {event.course_name}
+                </span>
+                <span className="text-gray-300">·</span>
+                <span className="text-sm font-bold text-gray-800 truncate">
+                  {event.title}
+                </span>
+                <span className={`ml-auto text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md ${colors.bg} ${colors.text}`}>
+                  {event.type.replace('_', ' ')}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   };
@@ -336,12 +357,12 @@ export default function GlobalCalendar() {
                 {renderDays()}
                 {renderCells()}
               </div>
-              {renderTodayEvents()}
+              {renderSelectedDayEvents()}
+              {renderUpcomingList()}
             </motion.div>
           )}
         </AnimatePresence>
       </main>
-
     </div>
   );
 }

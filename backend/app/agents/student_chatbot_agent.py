@@ -1,11 +1,10 @@
 import os
 import time
 import json
+import google.generativeai as genai
 from typing import List, Dict, Any
 
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 GOOGLE_API_KEYS = os.getenv("GOOGLE_API_KEYS", "")
@@ -13,13 +12,16 @@ _KEY_COOLDOWN_UNTIL: dict[str, float] = {}
 
 chat_prompt = PromptTemplate.from_template(
     """
-You are a world-class academic tutor and mentor. Your goal is to provide clear, high-quality, and deeply educational explanations for any query from a student or teacher.
+You are an exceptionally patient, supportive, and world-class academic tutor. Your primary goal is to nurture the student's understanding by providing clear and educational explanations.
 
 Class Context (Topics & Materials):
 {class_context}
 
 Student Mastery Snapshot:
 {student_snapshot}
+
+Uploaded Document Text (if any):
+{document_text}
 
 Conversation History:
 {history}
@@ -28,24 +30,14 @@ Current Query:
 {question}
 
 Instructions:
-1. Provide a direct, thorough answer to the query using your broad internal knowledge.
-2. If the 'Class Context' above contains relevant topics or materials, weave them naturally into your explanation to make it course-aligned.
-3. Use a supportive, encouraging, and sophisticated teaching tone.
-4. For technical or problem-solving questions, break the explanation into intuitive steps.
-5. Use Markdown formatting (headers, bold text, code blocks) to make the response visually organized and easy to read.
-
-Output Structure:
-## Quick Answer
-The direct answer to the question.
-
-## Deep Dive / Why
-A detailed explanation of the concept, principles, and underlying logic.
-
-## Step-by-Step / Examples
-(If applicable) Practical examples or a logical breakdown of the process.
-
-## Pro Tip / Next Concept
-A related higher-level concept or a practical tip to help the learner master this topic.
+1. **Adaptive Detail**: Tailor your response length and depth to the user's query. 
+   - If they ask a simple question (e.g., "What is ML?"), provide a solid, well-rounded answer that is clear but not overwhelmingly deep.
+   - If they ask for a "brief" or "short" explanation, be concise.
+   - If they ask for a "detailed" explanation, or if they ask you to explain a complex mechanism, go deep with step-by-step breakdowns and examples.
+2. **Patience & Tone**: Imagine you are sitting next to the student, patiently walking them through the concept. Use a warm, encouraging tone.
+3. **Diagrams**: Use Markdown `mermaid` diagrams (e.g., flowchart LR, sequenceDiagram) *only when helpful* to explain relationships, flows, or architectures. Do not force a diagram if the question is simple.
+4. **Document Usage**: If the user provided 'Uploaded Document Text', use it extensively to answer their question.
+5. **Formatting**: Use Markdown formatting (headers, bold text, bullet points) naturally to make the response visually organized and easy to read. Do not use a rigid, robotic output structure; let the structure flow naturally based on the question.
 """
 )
 
@@ -54,23 +46,26 @@ def _candidate_keys() -> List[str]:
     keys: List[str] = []
     
     # Dedicated chatbot API key (separate quota from quiz generation)
-    chatbot_key = os.getenv("CHATBOT_API_KEY", "").strip()
-    if chatbot_key:
-        keys.append(chatbot_key)
-    
-    # Fallback to general keys
-    api_keys = os.getenv("GOOGLE_API_KEYS", "").strip()
-    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
-    
-    if api_keys:
-        keys.extend([k.strip() for k in api_keys.split(",") if k.strip() and k.strip() not in keys])
-    if api_key and api_key not in keys:
-        keys.append(api_key)
-    return keys
+    chat_key = os.getenv("CHATBOT_API_KEY")
+    if chat_key:
+        keys.append(chat_key)
+        
+    # Fallback to general API key
+    if GOOGLE_API_KEY:
+        keys.append(GOOGLE_API_KEY)
+        
+    # Support multiple rotation keys if provided
+    if GOOGLE_API_KEYS:
+        parts = [k.strip() for k in GOOGLE_API_KEYS.split(",") if k.strip()]
+        keys.extend(parts)
+        
+    return list(dict.fromkeys(keys))
 
 
 def _available_keys() -> List[str]:
-    return _candidate_keys()
+    now = time.time()
+    return [k for k in _candidate_keys() if _KEY_COOLDOWN_UNTIL.get(k, 0) < now]
+
 
 def _cooldown_key(key: str, seconds: int) -> None:
     pass
@@ -167,6 +162,7 @@ async def generate_personalized_student_answer(
     student_snapshot: str,
     class_context: str,
     history: str,
+    document_text: str = "",
 ) -> Dict[str, Any]:
     keys = _available_keys()
     if not keys:
@@ -175,39 +171,42 @@ async def generate_personalized_student_answer(
             "mode": "fallback",
         }
 
+    # Format the prompt text using the template
+    prompt_text = chat_prompt.format(
+        question=question,
+        student_snapshot=student_snapshot,
+        class_context=class_context,
+        document_text=document_text or "No document provided.",
+        history=history,
+    )
+
     last_error_msg = ""
     for key in keys:
         try:
-            llm = ChatGoogleGenerativeAI(
-                model="gemini-2.5-flash",
-                temperature=0.7,
-                max_output_tokens=1000,
-                max_retries=1,
-                google_api_key=key,
+            genai.configure(api_key=key)
+            # Use gemini-flash-latest which is verified to work on these keys
+            model = genai.GenerativeModel('gemini-flash-latest')
+            
+            response = await model.generate_content_async(
+                prompt_text,
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=8192,
+                    temperature=0.7,
+                )
             )
-            chain = chat_prompt | llm | StrOutputParser()
-            answer = await chain.ainvoke(
-                {
-                    "question": question,
-                    "student_snapshot": student_snapshot,
-                    "class_context": class_context,
-                    "history": history,
-                }
-            )
-            return {"answer": answer, "mode": "model"}
+            
+            return {"answer": response.text, "mode": "model"}
         except Exception as e:
             err_str = str(e).lower()
             if "exhausted" in err_str or "quota" in err_str or "429" in err_str:
                 last_error_msg = "My AI free-tier rate limits have been temporarily reached (please try again in 1 minute)."
-            print(f"Chatbot Agent Error with key {key[:5]}...: {e}")
+            print(f"Chatbot Agent Native Error with key {key[:5]}...: {e}")
             continue
 
     if last_error_msg:
-        fallback_notice = f"**System Notice**: {last_error_msg}\n\n"
-    else:
-        fallback_notice = ""
-
+        return {"answer": last_error_msg, "mode": "fallback"}
+        
     return {
-        "answer": fallback_notice + _fallback_answer(question, student_snapshot, class_context),
+        "answer": _fallback_answer(question, student_snapshot, class_context),
         "mode": "fallback",
     }
