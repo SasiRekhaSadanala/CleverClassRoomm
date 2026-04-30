@@ -16,6 +16,7 @@ from app.models.assignment import Assignment, Submission
 from app.models.quiz import Quiz, QuizResult
 from app.models.calendar_event import CalendarEvent
 from app.models.enrollment import Enrollment
+from app.models.chat_session import ChatSession
 
 # MongoDB connection URL
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
@@ -27,7 +28,7 @@ async def lifespan(app: FastAPI):
     # Startup
     client = AsyncMongoClient(MONGO_URL)
     await init_beanie(database=client[DATABASE_NAME], document_models=[
-        User, Course, Topic, Assignment, Submission, Quiz, QuizResult, Enrollment, CalendarEvent
+        User, Course, Topic, Assignment, Submission, Quiz, QuizResult, Enrollment, CalendarEvent, ChatSession
     ])
     # Backfill course_id on existing CalendarEvents that don't have it
     try:
