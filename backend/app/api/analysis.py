@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from typing import Optional, List, Dict, Any
 from beanie import PydanticObjectId
+from beanie.operators import In
 
 from app.models.course import Course
 from app.models.enrollment import Enrollment
@@ -21,7 +22,7 @@ async def get_course_analysis(course_id: str, user_id: str, role: str):
             # --- TEACHER VIEW (Class-wide) ---
             enrollments = await Enrollment.find(Enrollment.course_id == course_id).to_list()
             student_ids = [e.student_id for e in enrollments]
-            students = await User.find({"_id": {"$in": [PydanticObjectId(sid) for sid in student_ids]}}).to_list()
+            students = await User.find(In(User.id, [PydanticObjectId(sid) for sid in student_ids])).to_list()
 
             topic_mastery = {}
             for student in students:
@@ -32,9 +33,11 @@ async def get_course_analysis(course_id: str, user_id: str, role: str):
             
             avg_topic_mastery = {k: round(sum(v)/len(v), 2) for k, v in topic_mastery.items() if v}
 
-            assignments = await Assignment.find(Assignment.course_id == course_id).to_list()
-            assignment_ids = [str(a.id) for a in assignments]
-            submissions = await Submission.find({"assignment_id": {"$in": assignment_ids}}).to_list()
+            assignments = await Assignment.find(Assignment.course.id == PydanticObjectId(course_id)).to_list()
+            assignment_ids = [a.id for a in assignments]
+            
+            # Query submissions for these assignments
+            submissions = await Submission.find(In(Submission.assignment.id, assignment_ids)).to_list()
             
             scores = [s.score for s in submissions if s.score is not None]
             avg_score = round(sum(scores)/len(scores), 2) if scores else 0
@@ -83,20 +86,19 @@ async def get_course_analysis(course_id: str, user_id: str, role: str):
             user = await User.get(PydanticObjectId(user_id))
             if not user: raise HTTPException(status_code=404, detail="Student not found")
 
-            assignments = await Assignment.find(Assignment.course_id == course_id).to_list()
-            assignment_ids = [str(a.id) for a in assignments]
-            submissions = await Submission.find({
-                "student_id": user_id,
-                "assignment_id": {"$in": assignment_ids}
-            }).to_list()
+            assignments = await Assignment.find(Assignment.course.id == PydanticObjectId(course_id)).to_list()
+            assignment_ids = [a.id for a in assignments]
+            
+            submissions = await Submission.find(
+                Submission.student.id == PydanticObjectId(user_id),
+                In(Submission.assignment.id, assignment_ids)
+            ).to_list()
 
             personal_scores = [s.score for s in submissions if s.score is not None]
             avg_p_score = round(sum(personal_scores)/len(personal_scores), 2) if personal_scores else 0
             
-            # Simple GPA calculation (score/25)
             gpa = round(avg_p_score / 25, 2) if avg_p_score else 0
 
-            # Score trend (last 5 submissions)
             score_trend = [{"name": f"Task {i+1}", "score": s.score} for i, s in enumerate(submissions[-5:])]
 
             personal_data = {
@@ -126,6 +128,6 @@ async def get_course_analysis(course_id: str, user_id: str, role: str):
             }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
